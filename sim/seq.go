@@ -17,9 +17,9 @@ License along with this program. If not, see
 */
 package main
 
-func Sequential() error {
-	z := MakeZeroGenerator("reset-vec", 16)
-	r := MakeRegister("pc", 16, func() bool {return true})
+func Sequential(s *System) error {
+	z := MakeZeroGenerator(s, "reset-vec", 16)
+	r := MakeRegister(s, "pc", 16, func() bool {return true})
 	r.AddInput(z)
 	return nil
 }

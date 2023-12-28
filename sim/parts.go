@@ -31,6 +31,9 @@ func (z *ZeroGenerator) Name() string {
 	return z.name
 }
 
+func (z *ZeroGenerator) Prepare() {
+}
+
 func (z *ZeroGenerator) Evaluate() []Bit {
 	return z.zeroes
 }
@@ -39,9 +42,9 @@ func (z *ZeroGenerator) Check() error {
 	return nil
 }
 
-func MakeZeroGenerator(name string, width int) *ZeroGenerator {
+func MakeZeroGenerator(s *System, name string, width int) *ZeroGenerator {
 	result := &ZeroGenerator{name, make([]Bit, width, width)}
-	RegisterComponent(result)
+	RegisterComponent(s, result)
 	return result
 }
 
@@ -50,13 +53,24 @@ type EnableFunc func() bool
 type Register struct {
 	name string
 	input []Component
-	state []Bit
-	clockEnable EnableFunc
+	exposedState []Bit
+	nextState []Bit
+	width int
+	nextStateValid bool
+	nextClockEnabled bool
+	enableFunc EnableFunc
 }
 
-func MakeRegister(name string, width int, en EnableFunc) *Register {
-	result := &Register{name: name, state: make([]Bit, width, width), clockEnable: en}
-	RegisterClockable(result)
+func MakeRegister(s *System, name string, width int, en EnableFunc) *Register {
+	result := &Register{}
+	result.name = name
+	result.exposedState = make([]Bit, width, width)
+	result.nextState = make([]Bit, width, width)
+	result.width = width
+	result.nextStateValid = false
+	result.nextClockEnabled = false
+	result.enableFunc = en
+	RegisterClockable(s, result)
 	return result
 }
 
@@ -73,26 +87,44 @@ func (r *Register) Check() error {
 	for _, c := range r.input {
 		n += len(c.Evaluate())
 	}
-	if n != len(r.state) {
-		return fmt.Errorf("%s: %d inputs, %d outputs", r.Name(), n, len(r.state))
+	if n != r.width {
+		return fmt.Errorf("%s: %d inputs, %d outputs", r.Name(), n, r.width)
 	}
 	return nil
 }
 
-func (r *Register) Evaluate() []Bit {
-	return r.state
+func (r *Register) Reset() {
+	r.exposedState = undefined(r.width)
+	r.nextStateValid = false
+	r.nextClockEnabled = false
 }
 
-func (r *Register) PositiveEdge() {
-	if r.clockEnable() {
+func (r *Register) Prepare() {
+	r.nextStateValid = false
+}
+
+// We must generate and cache all our next-state information at Evaluate()
+// time to avoid ordering dependencies at PositiveEdge() time. But we always
+// return our last state ... we're a register.
+func (r *Register) Evaluate() []Bit {
+	if !r.nextStateValid {
 		n := 0
 		for _, c := range r.input {
 			bits := c.Evaluate()
 			for _, b := range(bits) {
-				r.state[n] = b
+				r.nextState[n] = b
 				n++
 			}
 		}
+		r.nextClockEnabled = r.enableFunc()
+		r.nextStateValid = true
+	}
+	return r.exposedState
+}
+
+func (r *Register) PositiveEdge() {
+	if r.nextClockEnabled {
+		r.exposedState = r.nextState
 	}
 }
 

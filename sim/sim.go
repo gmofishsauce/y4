@@ -33,7 +33,7 @@ func main() {
 		Report(err.Error())
 		os.Exit(3)
 	}
-	if err = Simulate(s); err != nil {
+	if err = Simulate(s, true, 5); err != nil {
 		Report(err.Error())
 		os.Exit(4)
 	}
@@ -41,26 +41,25 @@ func main() {
 	os.Exit(0)
 }
 
-const k64 = 64*1024
-
-// Make all the system components and wire them together.
+// Make all the System components and wire them together.
 // In time, command line flags will offer a choice of implementations.
-func Build() (*system, error) {
+func Build() (*System, error) {
 	Report("building...")
-	if err := Sequential(); err != nil {
+	s, err := MakeSystem()
+	if err != nil {
 		return nil, err
 	}
-
-	sys.imem = make([]uint16, k64, k64)
-	sys.dmem = make([]byte, k64, k64)
-	return &sys, nil
+	if err = Sequential(s); err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
 // Components can't check themselves during Build() because they
 // can't know if another AddInput() call might be coming, etc.
 // This is called after build returns and calls Check() on all
 // the components that registered themselves during Build().
-func Check(s *system) error {
+func Check(s *System) error {
 	Report("checking...")
 	var nError int = 0
 	for _, cl := range s.state {
@@ -70,7 +69,7 @@ func Check(s *system) error {
 			Report(err.Error())
 		}
 	}
-	for _, co := range sys.logic {
+	for _, co := range s.logic {
 		dbg("combinational: %s", co.Name())
 		if err := co.Check(); err != nil {
 			nError++
@@ -78,38 +77,50 @@ func Check(s *system) error {
 		}
 	}
 	if nError > 0 {
-		s := "s" // Oh for a ternary ...
+		msg := "s" // Oh for a ternary ...
 		if nError == 1 {
-			s = ""
+			msg = ""
 		}
-		return fmt.Errorf("%d error%s found in circuit", nError, s)
+		return fmt.Errorf("%d error%s found in circuit", nError, msg)
 	}
 	return nil
 }
 
-func Simulate(s *system) error {
+// We have to be extremely careful not to introduce any ordering dependencies.
+// On each cycle, we first Prepare() all the components which clears the next
+// state variable for Clockables and also clears optional caching for logic.
+// Then we Evaluate() all the Clockables, which prepares their nextStates and
+// their clock enables, typically by calling to Evaluate() on logic components.
+// Finally, we call PositiveEdge() on all the Clockables which transfers next
+// state to exposed state. It's critical that all computation is performed in
+// Evaluate() only, after all components are prepared and before any are clocked.
+// Any computations done in PositiveEdge() may accidentally read exposed state
+// that has already been updated to its value for the following machine cycle.
+
+var cycleCounter int
+
+func Simulate(s *System, reset bool, nCycles int) error {
 	Report("simulating...")
+	if (reset) {
+		for _, cl := range s.state {
+			cl.Reset()
+		}
+		cycleCounter = 0
+	}
+	for end := cycleCounter + nCycles ; cycleCounter < end ; cycleCounter++ {
+		for _, co := range s.logic {
+			co.Prepare()
+		}
+		for _, cl := range s.state {
+			cl.Evaluate()
+		}
+		for _, cl := range s.state {
+			cl.PositiveEdge()
+		}
+	}
 	return nil
 }
 
 func Report(s string) {
 	fmt.Printf("%s\n", s)
 }
-
-type system struct {
-	logic []Component
-	state []Clockable
-	imem []uint16
-	dmem []byte
-}
-
-func RegisterClockable(c Clockable) {
-	sys.state = append(sys.state, c)
-}
-
-func RegisterComponent(c Component) {
-	sys.logic = append(sys.logic, c)
-}
-
-var sys system
-
