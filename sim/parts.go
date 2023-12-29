@@ -35,6 +35,7 @@ func (z *ZeroGenerator) Prepare() {
 }
 
 func (z *ZeroGenerator) Evaluate() []Bit {
+	// Report(z.name, "zero src", 0, 0, SevInfo, KindEval) TODO FIXME
 	return z.zeroes
 }
 
@@ -119,12 +120,15 @@ func (r *Register) Evaluate() []Bit {
 		r.nextClockEnabled = r.enableFunc()
 		r.nextStateValid = true
 	}
+	// Report(r.name, "reg", r.nextClockEnabled, r.exposedState, SevInfo, KindEval) TODO FIXME
 	return r.exposedState
 }
 
 func (r *Register) PositiveEdge() {
+	// old := r.exposedState TODO FIXME
 	if r.nextClockEnabled {
 		r.exposedState = r.nextState
 	}
+	// Report(r.name, "reg", old, r.exposedState, SevInfo, KindEdge) TODO FIXME
 }
 

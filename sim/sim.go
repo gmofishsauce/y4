@@ -18,33 +18,49 @@ License along with this program. If not, see
 package main
 
 import (
+	"encoding/binary"
 	"fmt"
 	"os"
+	"time"
+)
+
+var startTime time.Time = time.Now()
+var binLog *os.File
+
+const (
+	SevError = byte('E')
+	SevWarn = byte('W')
+	SevInfo = byte('I')
+	SevDebug = byte('D')
+	KindEval = byte('V')
+	KindEdge = byte('E')
 )
 
 func main() {
-    Report("starting...")
+	var err error
+	if binLog, err = os.Create("./log.bin"); err != nil {
+		fatal(fmt.Sprintf("open log.bin: %s\n", err.Error()))
+	}
+	defer binLog.Close()
+
 	s, err := Build()
 	if err != nil {
-		Report(err.Error())
-		os.Exit(2)
+		fatal(err.Error())
 	}
 	if err := Check(s); err != nil {
-		Report(err.Error())
-		os.Exit(3)
+		fatal(err.Error())
 	}
 	if err = Simulate(s, true, 5); err != nil {
-		Report(err.Error())
-		os.Exit(4)
+		fatal(err.Error())
 	}
-	Report("success")
+	pr("success")
 	os.Exit(0)
 }
 
 // Make all the System components and wire them together.
 // In time, command line flags will offer a choice of implementations.
 func Build() (*System, error) {
-	Report("building...")
+	dbg("building...")
 	s, err := MakeSystem()
 	if err != nil {
 		return nil, err
@@ -60,20 +76,20 @@ func Build() (*System, error) {
 // This is called after build returns and calls Check() on all
 // the components that registered themselves during Build().
 func Check(s *System) error {
-	Report("checking...")
+	dbg("checking...")
 	var nError int = 0
 	for _, cl := range s.state {
 		dbg("clockable: %s", cl.Name())
 		if err := cl.Check(); err != nil {
 			nError++
-			Report(err.Error())
+			pr(err.Error())
 		}
 	}
 	for _, co := range s.logic {
 		dbg("combinational: %s", co.Name())
 		if err := co.Check(); err != nil {
 			nError++
-			Report(err.Error())
+			pr(err.Error())
 		}
 	}
 	if nError > 0 {
@@ -100,7 +116,7 @@ func Check(s *System) error {
 var cycleCounter int
 
 func Simulate(s *System, reset bool, nCycles int) error {
-	Report("simulating...")
+	dbg("simulating...")
 	if (reset) {
 		for _, cl := range s.state {
 			cl.Reset()
@@ -121,6 +137,74 @@ func Simulate(s *System, reset bool, nCycles int) error {
 	return nil
 }
 
-func Report(s string) {
-	fmt.Printf("%s\n", s)
+func fatal(s string) {
+	pr(s)
+	os.Exit(2)
 }
+
+func pr(s string) {
+	fmt.Fprintf(os.Stderr, "%s\n", s)
+}
+
+const recordSize = 32
+const recordsPerBuffer = 128
+const bufLen = recordSize * recordsPerBuffer
+var buf1 []byte = make([]byte, bufLen, bufLen)
+var buf2 []byte = make([]byte, bufLen, bufLen)
+var bufferPair [2][]byte = [2][]byte{buf1, buf2}
+var bufferPairIndex = 0
+
+var bufOffset int // 0..4k by bufLen, then back to 0
+const srcLen = 12
+const evtLen = 10
+var zeroBytes []byte = make([]byte, recordSize, recordSize)
+
+// Written to a packed binary buffer formatted:
+// timestamp uint32 (details TBD; microseconds since execution start?)
+// source [srcLen]byte (truncated, unterminated ASCII-only string)
+// event  [evtLen]byte (truncated, unterminated ASCII-only string)
+// oldval uint16
+// newval uint16
+// sev byte
+// kind byte
+func Report(src string, evt string, oldval uint16, newval uint16, sev byte, kind byte)  {
+	logBuffer := bufferPair[bufferPairIndex]
+
+	if bufOffset == bufLen {
+		if _, err := binLog.Write(logBuffer); err != nil {
+			fmt.Fprintf(os.Stderr, "log write error: %s\n", err.Error())
+			os.Exit(2)
+		}
+
+		bufOffset = 0
+		bufferPairIndex = 1 - bufferPairIndex
+		logBuffer = bufferPair[bufferPairIndex]
+	}
+
+	copy(logBuffer[bufOffset:], zeroBytes)
+
+	var runtimeMicroseconds uint32
+	runtimeMicroseconds = uint32(time.Since(startTime).Nanoseconds() / 1000)
+	binary.LittleEndian.PutUint32(logBuffer[bufOffset:], runtimeMicroseconds)
+	bufOffset += 4
+
+	copy(logBuffer[bufOffset:], src)
+	bufOffset += srcLen
+	copy(logBuffer[bufOffset:], evt)
+	bufOffset += evtLen
+
+	binary.LittleEndian.PutUint16(logBuffer[bufOffset:], oldval)
+	bufOffset += 2
+	binary.LittleEndian.PutUint16(logBuffer[bufOffset:], newval)
+	bufOffset += 2
+
+	logBuffer[bufOffset] = sev
+	bufOffset += 1
+	logBuffer[bufOffset] = kind
+	bufOffset += 1
+
+	if bufOffset&(recordSize-1) != 0 {
+		panic(fmt.Sprintf("bufOffset %d", bufOffset))
+	}
+}
+
