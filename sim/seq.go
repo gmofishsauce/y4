@@ -20,6 +20,6 @@ package main
 func Sequential(s *System) error {
 	z := MakeZeroGenerator(s, "reset-vec", 16)
 	r := MakeRegister(s, "pc", 16, func() bool {return true})
-	r.AddInput(z)
+	r.AddInput(z, 16, 0)
 	return nil
 }

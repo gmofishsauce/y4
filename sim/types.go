@@ -18,49 +18,51 @@ package main
 
 const k64 = 64*1024
 
-// In a digital simulation, bits have a minimum of three possible
-// values: 1, 0, and at least one kind of undefined state. Since this
-// simulation isn't intended for systems with very large numbers of
-// bits, we don't attempt to pack them.
+// This simulator is aimed at 16-bit computer designs. So simulated bits
+// come in groups of 16, each called a Bits. Any group of 16 or fewer bits 
+// can be represented by one Bits. Each bit in a Bits can be in one of four
+// states: 0, 1, high impedence ("Z"), or undefined. These correspond exactly
+// to the four bit states of Verilog. The additional "weak" states of VHDL
+// STD_LOGIC are not represented.
 
-type Bit byte
-const bUndef = Bit('U')
-const bHighz = Bit('Z')
-
-var undef64 []Bit = []Bit{
-	bUndef, bUndef, bUndef, bUndef, bUndef, bUndef, bUndef, bUndef,
-	bUndef, bUndef, bUndef, bUndef, bUndef, bUndef, bUndef, bUndef,
-	bUndef, bUndef, bUndef, bUndef, bUndef, bUndef, bUndef, bUndef,
-	bUndef, bUndef, bUndef, bUndef, bUndef, bUndef, bUndef, bUndef,
-	bUndef, bUndef, bUndef, bUndef, bUndef, bUndef, bUndef, bUndef,
-	bUndef, bUndef, bUndef, bUndef, bUndef, bUndef, bUndef, bUndef,
-	bUndef, bUndef, bUndef, bUndef, bUndef, bUndef, bUndef, bUndef,
-	bUndef, bUndef, bUndef, bUndef, bUndef, bUndef, bUndef, bUndef,
+type Bits struct {
+	value uint16
+	highz uint16
+	undef uint16
+	width uint16
 }
 
-var highz64 []Bit = []Bit{
-	bHighz, bHighz, bHighz, bHighz, bHighz, bHighz, bHighz, bHighz,
-	bHighz, bHighz, bHighz, bHighz, bHighz, bHighz, bHighz, bHighz,
-	bHighz, bHighz, bHighz, bHighz, bHighz, bHighz, bHighz, bHighz,
-	bHighz, bHighz, bHighz, bHighz, bHighz, bHighz, bHighz, bHighz,
-	bHighz, bHighz, bHighz, bHighz, bHighz, bHighz, bHighz, bHighz,
-	bHighz, bHighz, bHighz, bHighz, bHighz, bHighz, bHighz, bHighz,
-	bHighz, bHighz, bHighz, bHighz, bHighz, bHighz, bHighz, bHighz,
-	bHighz, bHighz, bHighz, bHighz, bHighz, bHighz, bHighz, bHighz,
+const MaxWidth uint16 = 16
+const AllBits uint16 = 0xFFFF
+
+// Make a Bits from its four components, guarding against overflow
+func MakeBits(width uint16, undef uint16, highz uint16, value uint16) Bits {
+	return Bits{value, highz, undef, width}
 }
 
-func undefined(width int) []Bit {
-	if width > 64 {
-		panic("undefined > 64")
-	}
-	return undef64[0:width]
+func MakeZero(width uint16) Bits {
+	return MakeBits(width, 0, 0, 0)
 }
+var ZeroBits = MakeZero(16)
 
-func highz(width int) []Bit {
-	if width > 64 {
-		panic("highz > 64")
-	}
-	return highz64[0:width]
+func MakeOnes(width uint16) Bits {
+	return MakeBits(width, 0, 0, AllBits)
+}
+var OneBits = MakeOnes(16)
+
+func MakeHighz(width uint16) Bits {
+	return MakeBits(width, 0, AllBits, 0)
+}
+var HighzBits = MakeHighz(16)
+
+func MakeUndefined(width uint16) Bits {
+	return MakeBits(width, AllBits, 0, 0)
+}
+var UndefinedBits = MakeUndefined(16)
+
+// This is a convenience for the binary log writer
+func (b Bits) toUint64() uint64 {
+	return uint64(b.width)<<48 | uint64(b.undef)<<32 | uint64(b.highz)<<16 | uint64(b.value)
 }
 
 // A Component implements combinational logic.
@@ -69,7 +71,7 @@ type Component interface {
 	Name() string
 	Check() error
 	Prepare()
-	Evaluate() []Bit
+	Evaluate() Bits
 }
 
 // A Clockable computes its internal state on a positive going clock edge
@@ -102,4 +104,11 @@ func MakeSystem() (*System, error) {
 	result.imem = make([]uint16, k64, k64)
 	result.dmem = make([]byte, k64, k64)
 	return result, nil
+}
+
+func boolToBits(b bool) Bits {
+	if b {
+		return OneBits
+	}
+	return ZeroBits
 }

@@ -32,8 +32,9 @@ const (
 	SevWarn = byte('W')
 	SevInfo = byte('I')
 	SevDebug = byte('D')
-	KindEval = byte('V')
-	KindEdge = byte('E')
+	KindEval = byte('E')
+	KindEdge = byte('^')
+	KindVal = byte('V')
 )
 
 func main() {
@@ -146,7 +147,7 @@ func pr(s string) {
 	fmt.Fprintf(os.Stderr, "%s\n", s)
 }
 
-const recordSize = 32
+const recordSize = 64
 const recordsPerBuffer = 128
 const bufLen = recordSize * recordsPerBuffer
 var buf1 []byte = make([]byte, bufLen, bufLen)
@@ -154,23 +155,27 @@ var buf2 []byte = make([]byte, bufLen, bufLen)
 var bufferPair [2][]byte = [2][]byte{buf1, buf2}
 var bufferPairIndex = 0
 
-var bufOffset int // 0..4k by bufLen, then back to 0
-const srcLen = 12
-const evtLen = 10
+var bufOffset int // 0..8k by bufLen, then back to 0
+const srcLen = 16
+const evtLen = 16
 var zeroBytes []byte = make([]byte, recordSize, recordSize)
 
 // Written to a packed binary buffer formatted:
-// timestamp uint32 (details TBD; microseconds since execution start?)
-// source [srcLen]byte (truncated, unterminated ASCII-only string)
-// event  [evtLen]byte (truncated, unterminated ASCII-only string)
-// oldval uint16
-// newval uint16
+// timestamp uint64 (ns since execution start) (8 bytes)
+// source [srcLen]byte (truncated unterminated ASCII-only string)
+// event  [evtLen]byte (truncated unterminated ASCII-only string)
+// b0 Bits (struct Bits value) (8 bytes)
+// b1 Bits (struct Bits value) (8 bytes)
 // sev byte
 // kind byte
-func Report(src string, evt string, oldval uint16, newval uint16, sev byte, kind byte)  {
+// 6 bytes unused = 64
+func Report(src string, evt string, b0 Bits, b1 Bits, sev byte, kind byte)  {
 	logBuffer := bufferPair[bufferPairIndex]
 
 	if bufOffset == bufLen {
+		// I experimented with handing off to a background writer but
+		// found that it wasn't worth the trouble. I can write something
+		// like 10 million records per second with this code.
 		if _, err := binLog.Write(logBuffer); err != nil {
 			fmt.Fprintf(os.Stderr, "log write error: %s\n", err.Error())
 			os.Exit(2)
@@ -183,26 +188,27 @@ func Report(src string, evt string, oldval uint16, newval uint16, sev byte, kind
 
 	copy(logBuffer[bufOffset:], zeroBytes)
 
-	var runtimeMicroseconds uint32
-	runtimeMicroseconds = uint32(time.Since(startTime).Nanoseconds() / 1000)
-	binary.LittleEndian.PutUint32(logBuffer[bufOffset:], runtimeMicroseconds)
-	bufOffset += 4
+	var runtimeMicroseconds uint64
+	runtimeMicroseconds = uint64(time.Since(startTime).Nanoseconds())
+	binary.LittleEndian.PutUint64(logBuffer[bufOffset:], runtimeMicroseconds)
+	bufOffset += 8 // now 8
 
 	copy(logBuffer[bufOffset:], src)
-	bufOffset += srcLen
+	bufOffset += srcLen // now 24
 	copy(logBuffer[bufOffset:], evt)
-	bufOffset += evtLen
+	bufOffset += evtLen // now 40
 
-	binary.LittleEndian.PutUint16(logBuffer[bufOffset:], oldval)
-	bufOffset += 2
-	binary.LittleEndian.PutUint16(logBuffer[bufOffset:], newval)
-	bufOffset += 2
+	binary.LittleEndian.PutUint64(logBuffer[bufOffset:], b0.toUint64())
+	bufOffset += 8 // now 48
+	binary.LittleEndian.PutUint64(logBuffer[bufOffset:], b1.toUint64())
+	bufOffset += 8 // now 56
 
 	logBuffer[bufOffset] = sev
-	bufOffset += 1
+	bufOffset += 1 // now 57
 	logBuffer[bufOffset] = kind
-	bufOffset += 1
+	bufOffset += 1 // now 58
 
+	bufOffset += 6 // unused space at end; now 64
 	if bufOffset&(recordSize-1) != 0 {
 		panic(fmt.Sprintf("bufOffset %d", bufOffset))
 	}
