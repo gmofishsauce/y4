@@ -37,6 +37,7 @@ func main() {
 	if err := OpenLog(); err != nil {
 		fatal(fmt.Sprintf("open log file %s: %s\n", LogFileName, err))
 	}
+	defer CloseLog()
 
 	s, err := Build()
 	if err != nil {
@@ -48,9 +49,8 @@ func main() {
 	if err = Simulate(s, true, 5); err != nil {
 		fatal(err.Error())
 	}
+
 	pr("success")
-	CloseLog()
-	os.Exit(0)
 }
 
 // Make all the System components and wire them together.

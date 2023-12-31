@@ -69,21 +69,23 @@ func boolToBits(b bool) Bits {
 	return ZeroBits
 }
 
-// This is a convenience for the binary log writer
+// This is a convenience for the binary log writer.
 func (b Bits) toUint64() uint64 {
 	return uint64(b.width)<<48 | uint64(b.highz)<<32 | uint64(b.undef)<<16 | uint64(b.value)
 }
 
-// This is a convenience for the binary log reader
+// This is a convenience for the binary log reader.
 func fromUint64(bits uint64) Bits {
 	return Bits{value: uint16(bits)&AllBits, undef:uint16(bits>>16)&AllBits,
 				highz:uint16(bits>>32)&AllBits, width:uint16(bits>>48)&0x1F }
 }
 
-// A Component implements combinational logic.
+// A Component implements combinational logic. Components must register
+// themselves with the System when they are created.
 
 type Component interface {
 	Name() string
+	Width() uint16
 	Check() error
 	Prepare()
 	Evaluate() Bits
@@ -106,10 +108,12 @@ type System struct {
 	dmem []byte
 }
 
+// Register a Clockable (make it part of the System)
 func RegisterClockable(s *System, c Clockable) {
 	s.state = append(s.state, c)
 }
 
+// Register a Component (make it part of the System)
 func RegisterComponent(s *System, c Component) {
 	s.logic = append(s.logic, c)
 }

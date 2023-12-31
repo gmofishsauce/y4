@@ -31,6 +31,10 @@ func (z *ZeroGenerator) Name() string {
 	return z.name
 }
 
+func (z *ZeroGenerator) Width() uint16 {
+	return z.zeroes.width
+}
+
 func (z *ZeroGenerator) Prepare() {
 }
 
@@ -43,34 +47,40 @@ func (z *ZeroGenerator) Check() error {
 	return nil
 }
 
-func MakeZeroGenerator(s *System, name string, width int) *ZeroGenerator {
-	result := &ZeroGenerator{name, MakeBits(16, 0, 0, 0)}
+func MakeZeroGenerator(s *System, name string, width uint16) *ZeroGenerator {
+	result := &ZeroGenerator{name, MakeBits(width, 0, 0, 0)}
 	RegisterComponent(s, result)
 	return result
 }
 
+// A Register has a clock enable function. This function is combinational and
+// must be called only at Evaluate() time. If it returns true, the Register
+// will be updated at the following PositiveEdge().
 type EnableFunc func() bool
 
-type Input struct {
-	src Component
-	mask uint16
-	shift uint16
-}
-
+// A Register has a single properly-aligned full-width input Component. In
+// the simple case, it's the output of another aligned, full-width Component.
+// In the harder cases, a wiring net Component like a Bus or a Combiner must
+// be used; these Components have more complicated input structures.
+// A Register has an Enable function that is called at Evaluate() time. If
+// it returns true, a next value is computed and cached. The visible value
+// is then updated from the next value at PositiveEdge() time. The cached
+// value is cleared at Prepare() time and the cycle repeats.
 type Register struct {
 	name string
+	input Component
+	enableFunc EnableFunc
 	visibleState Bits
 	cachedState Bits
 	width uint16
-	inputs []*Input
 	cacheValid bool
 	clockEnabled bool
-	enableFunc EnableFunc
 }
 
-func MakeRegister(s *System, name string, width uint16, en EnableFunc) *Register {
+func MakeRegister(s *System, name string, width uint16, input Component, en EnableFunc) *Register {
 	result := &Register{}
 	result.name = name
+	result.input = input
 	result.visibleState = MakeUndefined(width)
 	result.cachedState = MakeUndefined(width)
 	result.width = width
@@ -85,45 +95,13 @@ func (r *Register) Name() string {
 	return r.name
 }
 
-// Add an input to register. In general, connections can be arbitrarily
-// scrambled. Here we allow a width and a shift from output to input.
-// This means e.g. two 4-bit registers can be sensibly connected to the
-// input of an 8-bit register. We do not allow other bit reorderings.
-func (r *Register) AddInput(c Component, width uint16, shift uint16) {
-	if width + shift > MaxWidth {
-		panic(fmt.Sprintf("%s.AddInput(%s, %d, %d): bad size\n",
-			r.Name(), c.Name(), width, shift))
-	}
-	var proposedMask uint16 = ((1<<width)-1)<<shift
-
-	// The shifted value is required to fit in this register
-	allowed := MakeOnes(r.width)
-	proposed := MakeBits(width, 0, 0, proposedMask)
-	if allowed.value | proposed.value != allowed.value {
-		panic(fmt.Sprintf("%s.AddInput(%s, %d, %d): bad fit\n",
-			r.Name(), c.Name(), width, shift))
-	}
-
-	// Don't allow the new input to overlap an existing input
-	var existingMask uint16
-	for _, in := range r.inputs {
-		existingMask |= (in.mask << in.shift)
-	}
-	if existingMask&proposedMask != 0 {
-		panic(fmt.Sprintf("%s.AddInput(): inputs from %s overlap\n",
-			r.Name(), c.Name()))
-	}
-	r.inputs = append(r.inputs, &Input{c, proposedMask, shift})
+func (r *Register) Width() uint16 {
+	return r.width
 }
 
 func (r *Register) Check() error {
-	var thisMask uint16 = (1<<r.width) - 1
-	var inputMask uint16
-	for _, in := range r.inputs {
-		inputMask |= in.mask << in.shift
-	}
-	if thisMask != inputMask {
-		return fmt.Errorf("%s: this 0x%x, inputs 0x%x", r.Name(), thisMask, inputMask)
+	if r.input == nil || r.input.Width() != r.width {
+		return fmt.Errorf("%s: invalid input: %[1]v %[1]T", r.input)
 	}
 	return nil
 }
@@ -132,7 +110,6 @@ func (r *Register) Reset() {
 	r.visibleState = UndefBits
 	r.cacheValid = false
 	r.clockEnabled = false
-	dbg("reporting...")
 	Report(r.name, "", ZeroBits, r.visibleState, SevInfo, KindEval)
 }
 
@@ -142,18 +119,12 @@ func (r *Register) Prepare() {
 
 // We must generate and cache all our next-state information at Evaluate()
 // time to avoid ordering dependencies at PositiveEdge() time. But we always
-// return our state from the previous clock edge... we're a register.
+// return our visible state from the previous clock edge: we're a Register.
 func (r *Register) Evaluate() Bits {
 	if !r.cacheValid {
 		r.clockEnabled = r.enableFunc()
 		if r.clockEnabled {
-			r.cachedState = ZeroBits
-			//foreach input {
-			//	input.undefined |= input.highz
-			//}
-			//for _, in := range r.inputs {
-			//  FIXME
-			//}
+			r.cachedState = r.input.Evaluate()
 		}
 		r.cacheValid = true
 	}

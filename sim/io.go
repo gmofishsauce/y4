@@ -50,7 +50,6 @@ func OpenLog() error {
 	if binLog, err = os.Create(LogFileName); err != nil {
 		return err
 	}
-	//defer closeLog()
 	startTime = time.Now()
 	return nil
 }
