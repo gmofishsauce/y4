@@ -18,31 +18,25 @@ License along with this program. If not, see
 package main
 
 import (
-	"encoding/binary"
+	"flag"
 	"fmt"
 	"os"
-	"time"
-)
-
-var startTime time.Time = time.Now()
-var binLog *os.File
-
-const (
-	SevError = byte('E')
-	SevWarn = byte('W')
-	SevInfo = byte('I')
-	SevDebug = byte('D')
-	KindEval = byte('E')
-	KindEdge = byte('^')
-	KindVal = byte('V')
 )
 
 func main() {
-	var err error
-	if binLog, err = os.Create("./log.bin"); err != nil {
-		fatal(fmt.Sprintf("open log.bin: %s\n", err.Error()))
+    vflag := flag.Bool("v", false, "dump binary log file")
+	flag.Parse()
+
+	if *vflag {
+		if err := Dumplog(); err != nil {
+			fatal(fmt.Sprintf("show %s: %s\n", LogFileName, err.Error()))
+		}
+		os.Exit(0)
 	}
-	defer binLog.Close()
+
+	if err := OpenLog(); err != nil {
+		fatal(fmt.Sprintf("open log file %s: %s\n", LogFileName, err))
+	}
 
 	s, err := Build()
 	if err != nil {
@@ -55,6 +49,7 @@ func main() {
 		fatal(err.Error())
 	}
 	pr("success")
+	CloseLog()
 	os.Exit(0)
 }
 
@@ -137,80 +132,3 @@ func Simulate(s *System, reset bool, nCycles int) error {
 	}
 	return nil
 }
-
-func fatal(s string) {
-	pr(s)
-	os.Exit(2)
-}
-
-func pr(s string) {
-	fmt.Fprintf(os.Stderr, "%s\n", s)
-}
-
-const recordSize = 64
-const recordsPerBuffer = 128
-const bufLen = recordSize * recordsPerBuffer
-var buf1 []byte = make([]byte, bufLen, bufLen)
-var buf2 []byte = make([]byte, bufLen, bufLen)
-var bufferPair [2][]byte = [2][]byte{buf1, buf2}
-var bufferPairIndex = 0
-
-var bufOffset int // 0..8k by bufLen, then back to 0
-const srcLen = 16
-const evtLen = 16
-var zeroBytes []byte = make([]byte, recordSize, recordSize)
-
-// Written to a packed binary buffer formatted:
-// timestamp uint64 (ns since execution start) (8 bytes)
-// source [srcLen]byte (truncated unterminated ASCII-only string)
-// event  [evtLen]byte (truncated unterminated ASCII-only string)
-// b0 Bits (struct Bits value) (8 bytes)
-// b1 Bits (struct Bits value) (8 bytes)
-// sev byte
-// kind byte
-// 6 bytes unused = 64
-func Report(src string, evt string, b0 Bits, b1 Bits, sev byte, kind byte)  {
-	logBuffer := bufferPair[bufferPairIndex]
-
-	if bufOffset == bufLen {
-		// I experimented with handing off to a background writer but
-		// found that it wasn't worth the trouble. I can write something
-		// like 10 million records per second with this code.
-		if _, err := binLog.Write(logBuffer); err != nil {
-			fmt.Fprintf(os.Stderr, "log write error: %s\n", err.Error())
-			os.Exit(2)
-		}
-
-		bufOffset = 0
-		bufferPairIndex = 1 - bufferPairIndex
-		logBuffer = bufferPair[bufferPairIndex]
-	}
-
-	copy(logBuffer[bufOffset:], zeroBytes)
-
-	var runtimeMicroseconds uint64
-	runtimeMicroseconds = uint64(time.Since(startTime).Nanoseconds())
-	binary.LittleEndian.PutUint64(logBuffer[bufOffset:], runtimeMicroseconds)
-	bufOffset += 8 // now 8
-
-	copy(logBuffer[bufOffset:], src)
-	bufOffset += srcLen // now 24
-	copy(logBuffer[bufOffset:], evt)
-	bufOffset += evtLen // now 40
-
-	binary.LittleEndian.PutUint64(logBuffer[bufOffset:], b0.toUint64())
-	bufOffset += 8 // now 48
-	binary.LittleEndian.PutUint64(logBuffer[bufOffset:], b1.toUint64())
-	bufOffset += 8 // now 56
-
-	logBuffer[bufOffset] = sev
-	bufOffset += 1 // now 57
-	logBuffer[bufOffset] = kind
-	bufOffset += 1 // now 58
-
-	bufOffset += 6 // unused space at end; now 64
-	if bufOffset&(recordSize-1) != 0 {
-		panic(fmt.Sprintf("bufOffset %d", bufOffset))
-	}
-}
-

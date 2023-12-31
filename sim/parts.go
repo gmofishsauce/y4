@@ -129,9 +129,11 @@ func (r *Register) Check() error {
 }
 
 func (r *Register) Reset() {
-	r.visibleState = UndefinedBits
+	r.visibleState = UndefBits
 	r.cacheValid = false
 	r.clockEnabled = false
+	dbg("reporting...")
+	Report(r.name, "", ZeroBits, r.visibleState, SevInfo, KindEval)
 }
 
 func (r *Register) Prepare() {
