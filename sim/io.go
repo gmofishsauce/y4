@@ -110,18 +110,21 @@ func Report(src string, evt string, b0 Bits, b1 Bits, sev byte, kind byte)  {
 	binary.LittleEndian.PutUint64(logBuffer[bufOffset:], b1.toUint64())
 	bufOffset += 8 // now 56
 
-	logBuffer[bufOffset] = sev
-	bufOffset += 1 // now 57
-	logBuffer[bufOffset] = kind
-	bufOffset += 1 // now 58
+	binary.LittleEndian.PutUint32(logBuffer[bufOffset:], CycleCounter)
+	bufOffset += 4 // now 60
 
-	bufOffset += 6 // unused space at end; now 64
+	logBuffer[bufOffset] = sev
+	bufOffset += 1 // now 61
+	logBuffer[bufOffset] = kind
+	bufOffset += 1 // now 62
+
+	bufOffset += 2 // unused space at end; now 64
 	if bufOffset&(recordSize-1) != 0 {
 		panic(fmt.Sprintf("bufOffset %d", bufOffset))
 	}
 }
 
-func CloseLog() {
+func FlushAndCloseLog() {
 	if bufOffset != 0 {
 		logBuffer := bufferPair[bufferPairIndex]
 		if _, err := binLog.Write(logBuffer[0:bufOffset]); err != nil {
@@ -131,7 +134,10 @@ func CloseLog() {
 	binLog.Close()
 }
 
-func trim(b []byte) string {
+// This can be done with strings but I didn't want to import it.
+// If a nul-terminated string isn't trimmed of its nuls, it won't
+// won't properly fill width when printed as e.g. %16s, below.
+func nonNul(b []byte) string {
 	var i int
 	for i = 0; i < len(b); i++ {
 		if b[i] == 0 {
@@ -152,22 +158,27 @@ func Dumplog() error {
 	var n int
 	var at int64 = 0
 	buf := make([]byte, recordSize, recordSize)
-	const billion = 1_000_000_000
+	const million = 1_000_000
+	const billion = 1000 * million
 
 	for n, err = f.ReadAt(buf, at) ; err == nil ; n, err = f.ReadAt(buf, at) {
 		ts := binary.LittleEndian.Uint64(buf[0:8])
 		b0 := fromUint64(binary.LittleEndian.Uint64(buf[40:48]))
 		b1 := fromUint64(binary.LittleEndian.Uint64(buf[48:56]))
+		cycle := binary.LittleEndian.Uint32(buf[56:60])
+		sec := ts / billion
+		milli := (ts - sec) / million
 
-		fmt.Printf("%4d.%06d: %-16s %-16s {%4X %04X %04X %04X} {%4X %04X %04X %04X} %c %c\n",
-			ts / billion, // timestamp uint64 seconds part
-			ts % billion, // timestamp uint64 billionths of a second part
-			trim(buf[8:24]), // source
-			trim(buf[24:40]), // event
+		fmt.Printf("%4d.%03d: %4d: %-16s %-16s {%2X %04X %04X %04X} {%2X %04X %04X %04X} %c %c\n",
+			sec, // seconds since start
+			milli, // and milliseconds
+			cycle, // machine cycle in simulation - can overflow (widen) the field
+			nonNul(buf[8:24]), // source
+			nonNul(buf[24:40]), // event
 			b0.width, b0.undef, b0.highz, b0.value, // struct bits b0
 			b1.width, b1.undef, b1.highz, b1.value, // struct bits b1
-			rune(buf[56]), // sev byte
-			rune(buf[57]), // kind byte
+			rune(buf[60]), // sev byte
+			rune(buf[61]), // kind byte
 		)
 		at += recordSize
 	}

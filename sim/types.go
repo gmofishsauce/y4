@@ -16,6 +16,8 @@ License along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 package main
 
+import "strings"
+
 const k64 = 64*1024
 
 // This simulator is aimed at 16-bit computer designs. So simulated bits
@@ -132,6 +134,37 @@ const (
 	SevInfo = byte('I')
 	SevDebug = byte('D')
 	KindEval = byte('E')
+	KindReset = byte('R')
 	KindEdge = byte('^')
 	KindVal = byte('V')
 )
+
+// ErrorList collection class implements error
+
+type ErrorList struct {
+	errors []error
+}
+
+func (list *ErrorList) appendIfNotNil(err error) {
+	if err == nil {
+		return
+	}
+	list.errors = append(list.errors, err)
+}
+
+func (list ErrorList) Error() string {
+	if list.Length() == 0 { // shouldn't happen
+		return "(no errors)"
+	}
+	var sb strings.Builder
+	for _, err := range(list.errors) {
+		sb.WriteString(err.Error())
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
+func (list *ErrorList) Length() int {
+	return len(list.errors)
+}
+

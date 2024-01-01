@@ -18,7 +18,20 @@ License along with this program. If not, see
 package main
 
 func Sequential(s *System) error {
-	z := MakeZeroGenerator(s, "reset-vec", 16)
-	MakeRegister(s, "pc", 16, z, func() bool {return true})
+	var errors ErrorList
+
+	m := MakeMux(s, "pc-input", 16)
+	z := MakeZeroGenerator(s, "temp-ctl", 1)
+	errors.appendIfNotNil(m.AddControl(z))
+
+	z = MakeZeroGenerator(s, "reset-vec", 16)
+	errors.appendIfNotNil(m.AddData(z, 0))
+	errors.appendIfNotNil(m.AddData(z, 1))
+
+	r := MakeRegister(s, "pc", 16, func() bool {return true})
+	errors.appendIfNotNil(r.AddInput(m))
+	if errors.Length() > 0 {
+		return errors
+	}
 	return nil
 }

@@ -37,7 +37,7 @@ func main() {
 	if err := OpenLog(); err != nil {
 		fatal(fmt.Sprintf("open log file %s: %s\n", LogFileName, err))
 	}
-	defer CloseLog()
+	defer FlushAndCloseLog()
 
 	s, err := Build()
 	if err != nil {
@@ -67,10 +67,10 @@ func Build() (*System, error) {
 	return s, nil
 }
 
-// Components can't check themselves during Build() because they
-// can't know if another AddInput() call might be coming, etc.
-// This is called after build returns and calls Check() on all
-// the components that registered themselves during Build().
+// Components can't fully check themselves during Build() because they
+// can't know if another AddInput() call might be coming, etc. This is
+// called after build returns and calls Check() on all the components
+// that registered themselves during Build().
 func Check(s *System) error {
 	dbg("checking...")
 	var nError int = 0
@@ -104,23 +104,26 @@ func Check(s *System) error {
 // Then we Evaluate() all the Clockables, which prepares their nextStates and
 // their clock enables, typically by calling to Evaluate() on logic components.
 // Finally, we call PositiveEdge() on all the Clockables which transfers next
-// state to exposed state. It's critical that all computation is performed in
+// state to visible state. It's critical that all computation is performed in
 // Evaluate() only, after all components are prepared and before any are clocked.
 // Any computations done in PositiveEdge() may accidentally read exposed state
 // that has already been updated to its value for the following machine cycle.
 
-var cycleCounter int
+var CycleCounter uint32
 
-func Simulate(s *System, reset bool, nCycles int) error {
+func Simulate(s *System, reset bool, nCycles uint32) error {
 	dbg("simulating...")
 	if (reset) {
 		for _, cl := range s.state {
 			cl.Reset()
 		}
-		cycleCounter = 0
+		CycleCounter = 0
 	}
-	for end := cycleCounter + nCycles ; cycleCounter < end ; cycleCounter++ {
+	for end := CycleCounter + nCycles ; CycleCounter < end ; CycleCounter++ {
 		for _, co := range s.logic {
+			co.Prepare()
+		}
+		for _, co := range s.state {
 			co.Prepare()
 		}
 		for _, cl := range s.state {
