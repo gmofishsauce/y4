@@ -26,3 +26,4 @@ log.bin
 
 # executable
 sim/sim
+asm/asm
