@@ -20,16 +20,19 @@ You should have received a copy of the GNU General Public License
 along with this program. If not, see http://www.gnu.org/licenses/.
 */
 
-import (
-	"bufio"
-)
-
 type AST struct {
 	ErrorCount int
 }
 
-func parse(in *bufio.Reader) (*AST, error) {
+func parse(src string) (*AST, error) {
+	lx, err := MakeLexer(src)
+	if err != nil {
+		return nil, err
+	}
+	TODO(lx)
+
 	ast := &AST{}
 	ast.ErrorCount = 0
 	return ast, nil
 }
+

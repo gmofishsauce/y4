@@ -18,7 +18,6 @@ License along with this program. If not, see
 package main
 
 import (
-	"bufio"
 	"flag"
 	"fmt"
 	"os"
@@ -28,25 +27,17 @@ var dflag = flag.Bool("d", false, "enable debug")
 
 func main() {
 	flag.Parse()
-
 	args := flag.Args()
 	if len(args) != 1 {
 		usage()
 	}
-	name := args[0]
-	src, err := os.Open(name)
+	ast, err := parse(args[0])
 	if err != nil {
-		fatal(fmt.Sprintf("open source file %s: %s\n", name, err))
+		fatal(fmt.Sprintf("%s: %d errors\n", args[0], ast.ErrorCount))
 	}
-	defer src.Close()
-
-	ast, err := parse(bufio.NewReader(src))
+	err = generate(ast)
 	if err != nil {
-		fatal(fmt.Sprintf("%s: %d errors\n", name, ast.ErrorCount))
-	}
-	code, err := generate(ast)
-	if err != nil {
-		fatal(fmt.Sprintf("%s: %d errors\n", name, code.ErrorCount))
+		fatal(fmt.Sprintf("%s: %d errors\n", args[0]))
 	}
 }
 

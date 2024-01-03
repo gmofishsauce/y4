@@ -20,13 +20,7 @@ You should have received a copy of the GNU General Public License
 along with this program. If not, see http://www.gnu.org/licenses/.
 */
 
-type Code struct {
-	ErrorCount int
-}
-
-func generate(ast *AST) (*Code, error) {
-	code := &Code{}
-	code.ErrorCount = 0
-	return code, nil
+func generate(ast *AST) error {
+	return nil
 }
 
