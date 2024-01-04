@@ -20,12 +20,17 @@ You should have received a copy of the GNU General Public License
 along with this program. If not, see http://www.gnu.org/licenses/.
 */
 
+// I think the assembly language is a regular language. There's
+// nothing that needs to balance. The "expression parser" only
+// needs to handle negation as a single unary operator. If want
+// to change this, hand off to a Pratt parser.
+
 type AST struct {
 	ErrorCount int
 }
 
 func parse(src string) (*AST, error) {
-	lx, err := MakeLexer(src)
+	lx, err := MakeFileLexer(src)
 	if err != nil {
 		return nil, err
 	}

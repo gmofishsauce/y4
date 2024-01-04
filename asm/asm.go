@@ -37,7 +37,7 @@ func main() {
 	}
 	err = generate(ast)
 	if err != nil {
-		fatal(fmt.Sprintf("%s: %d errors\n", args[0]))
+		fatal(fmt.Sprintf("%s: %s errors\n", args[0], err.Error()))
 	}
 }
 

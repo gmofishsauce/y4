@@ -27,6 +27,12 @@ import (
 	"runtime/debug"
 )
 
+func assert(b bool, msg string) {
+	if !b {
+		panic("assertion failure: " + msg)
+	}
+}
+
 func fatal(s string) {
 	pr(s)
 	os.Exit(2)

@@ -17,12 +17,14 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 package main
 
+// lexer.go - exported types: Token and Lexer.
+
 import (
-	"bufio"
 	"fmt"
 	"io"
-	"os"
 )
+
+var lexer_debug = false // prints token stream to stdout
 
 const SP = byte(' ')
 const TAB = byte('\t')
@@ -30,6 +32,7 @@ const NL = byte('\n')
 
 const COMMA = byte(',')
 const COLON = byte(':')
+const NEG = byte('-')
 
 const DOT = byte('.')
 const UNDERSCORE = byte('_')
@@ -61,36 +64,40 @@ var stEnd lexerStateType = lexerStateType{7}
 
 // Token kinds
 
-type tokenKindType struct {
+type TokenKindType struct {
 	k int
 }
 
-var tkError tokenKindType = tokenKindType{0}
-var tkNewline tokenKindType = tokenKindType{1}
-var tkSymbol tokenKindType = tokenKindType{2}
-var tkLabel tokenKindType = tokenKindType{3}
-var tkString tokenKindType = tokenKindType{4}
-var tkNumber tokenKindType = tokenKindType{5}
-var tkOperator tokenKindType = tokenKindType{6}
-var tkEnd tokenKindType = tokenKindType{7}
+var TkError TokenKindType = TokenKindType{0}
+var TkNewline TokenKindType = TokenKindType{1}
+var TkSymbol TokenKindType = TokenKindType{2}
+var TkLabel TokenKindType = TokenKindType{3}
+var TkString TokenKindType = TokenKindType{4}
+var TkNumber TokenKindType = TokenKindType{5}
+var TkOperator TokenKindType = TokenKindType{6}
+var TkEOF TokenKindType = TokenKindType{7}
 
 var kindToString = []string{
-	"tkError",
-	"tkNewline",
-	"tkSymbol",
-	"tkLabel",
-	"tkString",
-	"tkNumber",
-	"tkOperator",
-	"EOF",
+	"TkError",
+	"TkNewline",
+	"TkSymbol",
+	"TkLabel",
+	"TkString",
+	"TkNumber",
+	"TkOperator",
+	"TkEOF",
 }
 
-type token struct {
+// =====
+// Token
+// =====
+
+type Token struct {
 	tokenText string
-	tokenKind tokenKindType
+	tokenKind TokenKindType
 }
 
-func (t *token) String() string {
+func (t *Token) String() string {
 	s := t.tokenText
 	if s == "\n" {
 		s = "\\n"
@@ -98,44 +105,46 @@ func (t *token) String() string {
 	return fmt.Sprintf("{%s %s}", kindToString[t.tokenKind.k], s)
 }
 
-func (t *token) text() string {
+func (t *Token) Text() string {
 	return t.tokenText
 }
 
-func (t *token) kind() tokenKindType {
+func (t *Token) Kind() TokenKindType {
 	return t.tokenKind
 }
 
-var eofToken = token{"EOF", tkEnd}   // const
-var nlToken = token{"\n", tkNewline} // const
+var eofToken = Token{"EOF", TkEOF}   // const
+var nlToken = Token{"\n", TkNewline} // const
 
 // =====
 // Lexer
 // =====
 
 type Lexer struct {
-	rawFile io.Closer
-	reader io.ByteReader
+	reader PushbackByteReader
 	lexerState lexerStateType
-	pbToken *token
+	path string 
+	pbToken *Token
 }
 
-func MakeLexer(src string) (*Lexer, error) {
-	f, err := os.Open(src)
+func MakeFileLexer(path string) (*Lexer, error) {
+	pbr, err := NewFilePushbackByteReader(path)
 	if err != nil {
 		return nil, err
 	}
+	return &Lexer{reader: pbr, lexerState: stBetween, path: path}, nil
+}
 
-	result := &Lexer{}
-	result.rawFile = f
-	result.reader = bufio.NewReader(f)
-	result.lexerState = stBetween
-	result.pbToken = nil
-	return result, nil
+func MakeStringLexer(ident string, body string) (*Lexer, error) {
+	pbr, err := NewStringPushbackByteReader(body)
+	if err != nil {
+		return nil, err
+	}
+	return &Lexer{reader: pbr, lexerState: stBetween, path: ident}, nil
 }
 
 func (lx *Lexer) Close() {
-	lx.rawFile.Close()
+	lx.reader.Close()
 }
 
 // getToken returns the next lexer token (or an EOF or error token).
@@ -172,14 +181,15 @@ func (lx *Lexer) Close() {
 // anyway. When the lexer encounters an error, it is returned as token; the lexer then
 // enters an error state and throws away characters until it sees a newline (or EOF).
 
-func (lx *Lexer) getToken() *token {
+func (lx *Lexer) GetToken() *Token {
 	result := lx.internalGetToken()
-	// This function allows printing of the token stream:
-	// fmt.Printf("[ %s ]\n", result)
+	if lexer_debug {
+		fmt.Printf("[ %s ]\n", result)
+	}
 	return result
 }
 
-func (lx *Lexer) internalGetToken() *token {
+func (lx *Lexer) internalGetToken() *Token {
 	if lx.lexerState == stEnd {
 		return &eofToken
 	}
@@ -188,7 +198,7 @@ func (lx *Lexer) internalGetToken() *token {
 		lx.pbToken = nil
 		if lx.lexerState != stBetween {
 			lx.lexerState = stInError
-			result = &token{"internal error: pbToken but not between tokens", tkError}
+			result = &Token{"internal error: pbToken but not between tokens", TkError}
 		}
 		return result // leaving the state "between"
 	}
@@ -203,11 +213,11 @@ func (lx *Lexer) internalGetToken() *token {
 		}
 		if err != nil {
 			lx.lexerState = stInError
-			return &token{err.Error(), tkError}
+			return &Token{err.Error(), TkError}
 		}
 		if b >= 0x80 {
 			lx.lexerState = stInError
-			return &token{fmt.Sprintf("non-ASCII character 0x%02x", b), tkError}
+			return &Token{fmt.Sprintf("non-ASCII character 0x%02x", b), TkError}
 		}
 
 		// Switch on lexer state. Within each case, handle all character types. The
@@ -250,12 +260,12 @@ func (lx *Lexer) internalGetToken() *token {
 				// For now, at least, commas occurring between tokens are simply ignored -
 				// they are white space. We might do something fancier later.
 				if b != COMMA {
-					return &token{string(b), tkOperator}
+					return &Token{string(b), TkOperator}
 				}
 			} else {
 				msg := fmt.Sprintf("character 0x%02x (%d) unexpected [1]", b, b)
 				lx.lexerState = stInError
-				return &token{msg, tkError}
+				return &Token{msg, TkError}
 			}
 		case stInSymbol:
 			if len(accumulator) == 0 {
@@ -263,7 +273,7 @@ func (lx *Lexer) internalGetToken() *token {
 			}
 			if isWhiteSpaceChar(b) || isOperatorChar(b) {
 				lx.lexerState = stBetween
-				var result *token
+				var result *Token
 				if b == COLON {
 					// Label definition, e.g. "myLabel:"
 					// Again, here, we end in the BETWEEN state with
@@ -271,14 +281,14 @@ func (lx *Lexer) internalGetToken() *token {
 					// to write "myLabel:JMP myLabel" with no space
 					// between the colon and the previously defined
 					// assembler mnemonic.
-					result = &token{string(accumulator), tkLabel}
+					result = &Token{string(accumulator), TkLabel}
 				} else {
-					result = &token{string(accumulator), tkSymbol}
+					result = &Token{string(accumulator), TkSymbol}
 					// Even for whitespace, we need to push it back
 					// and process it next time we're called because
 					// it might be a newline, which gets returned as
 					// a separate token while still being white space.
-					lx.reader.unreadByte(b)
+					lx.reader.UnreadByte(b)
 				}
 				accumulator = nil
 				return result
@@ -287,7 +297,7 @@ func (lx *Lexer) internalGetToken() *token {
 			} else {
 				msg := fmt.Sprintf("character 0x%02x (%d) unexpected [2]", b, b)
 				lx.lexerState = stInError
-				return &token{msg, tkError}
+				return &Token{msg, TkError}
 			}
 		case stInString:
 			if isQuoteChar(b) {
@@ -297,13 +307,13 @@ func (lx *Lexer) internalGetToken() *token {
 				// demand that e.g. builtin symbols be preceded by a newline and optional
 				// whitespace, etc., so this may be reported as an error there.
 				lx.lexerState = stBetween
-				result := &token{`"` + string(accumulator) + `"`, tkString}
+				result := &Token{`"` + string(accumulator) + `"`, TkString}
 				accumulator = nil
 				return result
 			} else if b == NL {
 				// There is no escape convention
 				lx.lexerState = stInError
-				return &token{"newline in string", tkError}
+				return &Token{"newline in string", TkError}
 			} else {
 				accumulator = append(accumulator, b)
 			}
@@ -315,21 +325,21 @@ func (lx *Lexer) internalGetToken() *token {
 			if isDigitChar(b) || isHexLetter(b) || isX(b) {
 				accumulator = append(accumulator, b)
 			} else if isWhiteSpaceChar(b) || isOperatorChar(b) {
-				var result *token
+				var result *Token
 				if !validNumber(accumulator) {
-					result = &token{fmt.Sprintf("invalid number %s", string(accumulator)), tkError}
+					result = &Token{fmt.Sprintf("invalid number %s", string(accumulator)), TkError}
 					lx.lexerState = stInError
 				} else {
-					result = &token{string(accumulator), tkNumber}
+					result = &Token{string(accumulator), TkNumber}
 					lx.lexerState = stBetween
 				}
 				accumulator = nil
-				lx.reader.unreadByte(b)
+				lx.reader.UnreadByte(b)
 				return result
 			} else {
 				msg := fmt.Sprintf("character 0x%02x (%d) unexpected in number", b, b)
 				lx.lexerState = stInError
-				return &token{msg, tkError}
+				return &Token{msg, TkError}
 			}
 			// That's it - no state called stInOperator since they are all single characters
 		}
@@ -337,7 +347,7 @@ func (lx *Lexer) internalGetToken() *token {
 }
 
 // Unget a token, allowing one-character look ahead
-func (lx *Lexer) unget(tk *token) error {
+func (lx *Lexer) unget(tk *Token) error {
 	if lx.pbToken != nil {
 		lx.lexerState = stInError
 		return fmt.Errorf("internal error: too many token pushbacks")
@@ -395,7 +405,7 @@ func isQuoteChar(b byte) bool {
 }
 
 func isOperatorChar(b byte) bool {
-	return b == COMMA || b == COLON
+	return b == COMMA || b == COLON || b == NEG
 }
 
 // Dot is allowed only as the initial character
