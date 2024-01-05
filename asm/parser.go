@@ -25,73 +25,6 @@ import (
 	"os"
 )
 
-// I think the assembly language is a regular language. There's
-// nothing that needs to balance. The "expression parser" only
-// needs to handle negation as a single unary operator. If want
-// to change this, hand off to a Pratt parser for expressions.
-
-// Make MachineInstructions for any line that needs them - not
-// for blank lines, comment-only lines, or .set mnemonics that
-// only affect the symbol table. Make more than one of these
-// for mnemonics that expand into multiple instructions.
-//
-// If an error occurs, don't create a struct for the error line
-// or for any future lines on this run, but continue processing
-// to detect additional errors.
-//
-// The fields have to big enough to hold indexes into the symbol
-// table for cases where the value of the field is not known
-// until the second pass. They also need to hold 10-bit upper
-// immediate values. Immediate values, when present, are held
-// in the rC field. Extended opcodes are held in the op field.
-// Symbol table references are negated when stored here. This
-// arrangement enforces a limit of 32767 symbols on a compilation
-// unit. In this first version of the assembler, there is no
-// linker so every program must be a single compilation unit.
-
-type MachineInstruction struct {
-	op uint16 // 3 bits, 7 bits for XOPs, and 10 bits for XXOPs.
-	rc uint16 // rc field or immediate value or symbol
-	rb uint16 // rb field or symbol
-	ra uint16 // ra field or symbol
-}
-
-// Table of mnemonics and opcodes
-
-type Op struct {
-	name string
-	handler func(string, []string) error
-}
-
-// FIXME merge with the copy of this in syms.go
-
-var OpTable []Op = []Op{
-	{"adi", nil},
-	{"beq", nil},
-	{"lb", nil},
-	{"li", nil},
-	{"lli", nil},
-	{"lui", nil},
-	{"sb", nil},
-	{"sw", nil},
-	{"nop", nil},
-	{"jalr", nil},
-	{".fill", nil},
-	{".space", nil},
-	{".set", nil},
-}
-
-/* FIXME remove
-var TkError TokenKindType = TokenKindType{0}
-var TkNewline TokenKindType = TokenKindType{1}
-var TkSymbol TokenKindType = TokenKindType{2}
-var TkLabel TokenKindType = TokenKindType{3}
-var TkString TokenKindType = TokenKindType{4}
-var TkNumber TokenKindType = TokenKindType{5}
-var TkOperator TokenKindType = TokenKindType{6}
-var TkEOF TokenKindType = TokenKindType{7}
-*/
-
 const (				// parser states index parserStateMap
 	StError = iota	// error seen, seeking newline
 	StStartLine		// at start of line
@@ -102,12 +35,14 @@ const (				// parser states index parserStateMap
 
 type stateHandler func(ctx *parserContext, t *Token)
 
-var parserStateMap []stateHandler = []stateHandler {
+// We have one handler function for each parser state. The
+// table is index by the parser states, above.
+var parserFunctionMap []stateHandler = []stateHandler {
 	doErrorState,
 	doStartLineState,
 	doHaveLabelState,
 	doHaveOpState,
-	doNeedLineState,
+	doNeedLineEndState,
 }
 
 type parserContext struct { // bag o' context
@@ -117,10 +52,21 @@ type parserContext struct { // bag o' context
 	errorCount int
 	instructions []MachineInstruction
 	state int
-	op string
+	key string
 	operands []string
 	syms *SymbolTable
 }
+
+// Parser
+//
+// I think the assembly language is a regular language. There's nothing
+// that needs to balance. The "expression parser" only needs to handle
+// negation as a single unary operator. If want to change this, hand off
+// to a Pratt parser for expressions.
+//
+// If an error occurs, don't create a struct for the error line or for
+// any future lines on this run, but continue processing to detect
+// additional errors. FIXME TODO
 
 func parse(srcPath string) (*[]MachineInstruction, error) {
 	lx, err := MakeFileLexer(srcPath)
@@ -132,7 +78,7 @@ func parse(srcPath string) (*[]MachineInstruction, error) {
 	ctx := &parserContext{
 		srcPath: srcPath, srcLine: 1,
 		dot: 0, errorCount: 0,
-		instructions: make([]MachineInstruction, 32, 32),
+		instructions: make([]MachineInstruction, 0, 32),
 		state: StStartLine,
 		syms: MakeSymbolTable(),
 	}
@@ -148,7 +94,7 @@ func parse(srcPath string) (*[]MachineInstruction, error) {
 		}
 
 		// Handle one token in the current state
-		parserStateMap[ctx.state](ctx, t)
+		parserFunctionMap[ctx.state](ctx, t)
 	}
 
 	// EOF seen - end of file processing
@@ -169,6 +115,17 @@ func parse(srcPath string) (*[]MachineInstruction, error) {
 	return &ctx.instructions, err
 }
 
+/* FIXME remove
+var TkError TokenKindType = TokenKindType{0}
+var TkNewline TokenKindType = TokenKindType{1}
+var TkSymbol TokenKindType = TokenKindType{2}
+var TkLabel TokenKindType = TokenKindType{3}
+var TkString TokenKindType = TokenKindType{4}
+var TkNumber TokenKindType = TokenKindType{5}
+var TkOperator TokenKindType = TokenKindType{6}
+var TkEOF TokenKindType = TokenKindType{7}
+*/
+
 // In error state. Ignore everything until newline.
 func doErrorState(ctx *parserContext, t *Token) {
 	if t.Kind() == TkNewline {
@@ -187,31 +144,47 @@ func doStartLineState(ctx *parserContext, t *Token) {
 		}
 		ctx.state = StHaveLabel
 	case TkSymbol:
-		if ctx.syms.isKeySymbol(t.Text()) {
-			// FIXME get the signature
-			ctx.op = t.Text()
-			ctx.state = StHaveOp
-		} else {
-			report(ctx, "not an opcode: %s", t.Text())
-		}
+		ctx.state = StHaveLabel
+		doHaveLabelState(ctx, t)
 	default:
 		report(ctx, "unexpected: %s", t.String())	
 	}
 }
 
 func doHaveLabelState(ctx *parserContext, t *Token) {
+/*
+	switch t.Kind() {
+	case TkSymbol:
+		if ctx.syms.isKeySymbol(t.Text()) {
+			ctx.key = t.Text()
+			ctx.state = StHaveOp
+		} else {
+			report(ctx, "not a opcode: %s", t.Text())
+		}
+	default:
+		report("unexpected: %s", t.Text())
+	}
+*/
+	ctx.state = StHaveOp
 }
 
 func doHaveOpState(ctx *parserContext, t *Token) {
+	ctx.state = StHaveOp
 }
 
-func doNeedLineState(ctx *parserContext, t *Token) {
+func doNeedLineEndState(ctx *parserContext, t *Token) {
+	ctx.state = StNeedNewline
 }
 
 // This function prints an error, counts the error and then changes
 // the state machine to the error state. It needs a better name.
-func report(ctx *parserContext, msg string, args... any) {
-	fmt.Fprintf(os.Stderr, "%s, line %d: "+msg, ctx.srcPath, ctx.srcLine, args)
+func report(ctx *parserContext, msg string, args ...any) {
+	actuals := []any{ctx.srcPath, ctx.srcLine}
+	for _, a := range args {
+		actuals = append(actuals, a)
+	}
+	fmt.Fprintf(os.Stderr, "%s, line %d: "+msg+"\n", actuals...)
+
 	ctx.state = StError
 	ctx.errorCount++
 }

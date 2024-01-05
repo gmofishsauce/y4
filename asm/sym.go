@@ -37,6 +37,8 @@ const (
 // and hash the key to the array index. Space management is
 // easy because nothing gets freed during a parse and everything
 // can be freed after the parse (we currently don't bother).
+// We enforce a limit of 2^15-1 symbols because it's adequate
+// and it's convenient for other parts of the implementation.
 
 type SymbolEntry struct {
 	kind uint16
@@ -50,30 +52,21 @@ type SymbolTable struct {
 	entries []SymbolEntry
 }
 
+// Initialize the symtab by creating all the reserved entries. The first
+// 8 entries in the symbol table are the registers r0..r7. This creates an
+// identity mapping so that e.g. SymbolTable.indexes["r5"] == 5. Then add
+// all the key symbols.
 func MakeSymbolTable() *SymbolTable {
 	symTab := &SymbolTable{}
 	symTab.indexes = make(map[string]SymbolIndex)
-	symTab.entries = make([]SymbolEntry, 0, 0)
+	symTab.entries = make([]SymbolEntry, 0, 64)
 
-	// FIXME the value will be the types of all operands
-	// FIXME there should be only one table of opeerations
-	// and operand types in the assember, shared with the
-	// parser and maybe elsewhere.
-	// FIXME the list below is incomplete.
-
-	symTab.defineSymbol("adi", SymKey, 0)
-	symTab.defineSymbol("beq", SymKey, 0)
-	symTab.defineSymbol("lb", SymKey, 0)
-	symTab.defineSymbol("li", SymKey, 0)
-	symTab.defineSymbol("lli", SymKey, 0)
-	symTab.defineSymbol("lui", SymKey, 0)
-	symTab.defineSymbol("sb", SymKey, 0)
-	symTab.defineSymbol("sw", SymKey, 0)
-	symTab.defineSymbol("nop", SymKey, 0)
-	symTab.defineSymbol("jalr", SymKey, 0)
-	symTab.defineSymbol(".fill", SymKey, 0)
-	symTab.defineSymbol(".space", SymKey, 0)
-	symTab.defineSymbol(".set", SymKey, 0)
+	for i := 0; i < 8; i++ {
+		symTab.defineSymbol("r" + string(rune('0'+i)), SymValue, uint16(i))
+	}
+	for _, keyEntry := range KeyTable {
+		symTab.defineSymbol(keyEntry.name, keyEntry.sym.kind, keyEntry.sym.value)
+	}
 
 	return symTab
 }
@@ -82,7 +75,7 @@ func (st *SymbolTable) defineSymbol(name string, kind uint16, value uint16) erro
 	if _, trouble := st.indexes[name]; trouble {
 		return fmt.Errorf("%s: symbol exists", name)
 	}
-	if len(st.entries) > 0xFFFE {
+	if len(st.entries) == 0x7FFF {
 		return fmt.Errorf("symbol table overflow")
 	}
 
