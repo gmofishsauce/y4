@@ -31,13 +31,13 @@ func main() {
 	if len(args) != 1 {
 		usage()
 	}
-	ast, err := parse(args[0])
+	instructions, err := parse(args[0])
 	if err != nil {
-		fatal(fmt.Sprintf("%s: %d errors\n", args[0], ast.ErrorCount))
+		fatal(fmt.Sprintf("%s: %s\n", args[0], err.Error()))
 	}
-	err = generate(ast)
+	err = generate(instructions)
 	if err != nil {
-		fatal(fmt.Sprintf("%s: %s errors\n", args[0], err.Error()))
+		fatal(fmt.Sprintf("%s: %s\n", args[0], err.Error()))
 	}
 }
 

@@ -110,6 +110,7 @@ func TestLexer6(t *testing.T) {
 }
 
 var t7data string = `
+		# From https://user.eng.umd.edu/~blj/risc/RiSC-isa.pdf
 		lw 1,0,count	# load reg1 with 5 (uses symbolic address)
 		lw 2,1,2		# load reg2 with -1 (uses numeric address)
 start:	add 1,1,2		# decrement reg1 -- could have been addi 1,1,-1
@@ -121,8 +122,11 @@ start:	add 1,1,2		# decrement reg1 -- could have been addi 1,1,-1
 		startAddr: .fill start # will contain the address of start (2)
 `
 
+// The stringer for Tokens turns actual newline characters into
+// backslash n, which has to be represented as \\n in a string.
 var t7dataAsString []string = []string{
-"{TkNewline \\n}",
+"{TkNewline \\n}", // initial newline
+"{TkNewline \\n}", // after the From... comment
 "{TkSymbol lw}",
 "{TkNumber 1}",
 "{TkNumber 0}",

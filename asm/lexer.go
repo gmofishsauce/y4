@@ -147,7 +147,7 @@ func (lx *Lexer) Close() {
 	lx.reader.Close()
 }
 
-// getToken returns the next lexer token (or an EOF or error token).
+// GetToken returns the next lexer token (or an EOF or error token).
 //
 // The language is all ASCII - no exceptions, not even in quoted strings. White space
 // includes only space, tab, and newline. Newline is returned as a separate token so
