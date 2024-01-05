@@ -25,6 +25,11 @@ import (
 
 var dflag = flag.Bool("d", false, "enable debug")
 
+// Y4 assembler. A general theme with this assembler is that it has
+// only limited dependencies on libraries. The goal is to eventually
+// rewrite this in a simple language with limited libraries and self-
+// host on homemade Y4.
+
 func main() {
 	flag.Parse()
 	args := flag.Args()

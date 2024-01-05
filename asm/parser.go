@@ -50,10 +50,10 @@ import (
 // linker so every program must be a single compilation unit.
 
 type MachineInstruction struct {
-	op int16 // 3 bits, 7 bits for XOPs, and 10 bits for XXOPs.
-	rc int16 // rc field or immediate value or symbol
-	rb int16 // rb field or symbol
-	ra int16 // ra field or symbol
+	op uint16 // 3 bits, 7 bits for XOPs, and 10 bits for XXOPs.
+	rc uint16 // rc field or immediate value or symbol
+	rb uint16 // rb field or symbol
+	ra uint16 // ra field or symbol
 }
 
 // Table of mnemonics and opcodes
@@ -62,6 +62,8 @@ type Op struct {
 	name string
 	handler func(string, []string) error
 }
+
+// FIXME merge with the copy of this in syms.go
 
 var OpTable []Op = []Op{
 	{"adi", nil},
@@ -79,7 +81,7 @@ var OpTable []Op = []Op{
 	{".set", nil},
 }
 
-/*
+/* FIXME remove
 var TkError TokenKindType = TokenKindType{0}
 var TkNewline TokenKindType = TokenKindType{1}
 var TkSymbol TokenKindType = TokenKindType{2}
@@ -111,12 +113,13 @@ var parserStateMap []stateHandler = []stateHandler {
 type parserContext struct { // bag o' context
 	srcPath string
 	srcLine int
-	dot int			// next offset in instructions 
+	dot uint16
 	errorCount int
 	instructions []MachineInstruction
-	state int		// StXxx parse states
+	state int
 	op string
 	operands []string
+	syms *SymbolTable
 }
 
 func parse(srcPath string) (*[]MachineInstruction, error) {
@@ -131,6 +134,7 @@ func parse(srcPath string) (*[]MachineInstruction, error) {
 		dot: 0, errorCount: 0,
 		instructions: make([]MachineInstruction, 32, 32),
 		state: StStartLine,
+		syms: MakeSymbolTable(),
 	}
 
 	// Process one token per iteration. If we see an error,  enter
@@ -178,12 +182,13 @@ func doStartLineState(ctx *parserContext, t *Token) {
 	case TkNewline:
 		ctx.srcLine++
 	case TkLabel:
-		if err := defineSymbol(t.Text(), SymLabel); err != nil {
+		if err := ctx.syms.defineSymbol(t.Text(), SymLabel, ctx.dot); err != nil {
 			report(ctx, err.Error())
 		}
 		ctx.state = StHaveLabel
 	case TkSymbol:
-		if isKeySymbol(t.Text()) {
+		if ctx.syms.isKeySymbol(t.Text()) {
+			// FIXME get the signature
 			ctx.op = t.Text()
 			ctx.state = StHaveOp
 		} else {
@@ -201,15 +206,6 @@ func doHaveOpState(ctx *parserContext, t *Token) {
 }
 
 func doNeedLineState(ctx *parserContext, t *Token) {
-}
-
-func isOp(sym string) func(string, []string) error {
-	for _, op := range OpTable {
-		if op.name == sym {
-			return op.handler
-		}
-	}
-	return nil
 }
 
 // This function prints an error, counts the error and then changes
