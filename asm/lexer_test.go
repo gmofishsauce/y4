@@ -24,7 +24,7 @@ import (
 
 func check(t *testing.T, a1 any, a2 any) {
 	if a1 != a2 {
-		t.Errorf("%[1]v (a %[1]T) != %[2]v (a %[2]T)", a1, a2)
+		t.Errorf("%[1]v (type \"%[1]T\") != %[2]v (type \"%[2]T\")", a1, a2)
 	}
 }
 

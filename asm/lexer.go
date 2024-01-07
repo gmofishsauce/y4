@@ -24,7 +24,7 @@ import (
 	"io"
 )
 
-var lexer_debug = false // prints token stream to stdout
+var LexerDebug = false // prints token stream
 
 const SP = byte(' ')
 const TAB = byte('\t')
@@ -183,8 +183,8 @@ func (lx *Lexer) Close() {
 
 func (lx *Lexer) GetToken() *Token {
 	result := lx.internalGetToken()
-	if lexer_debug {
-		fmt.Printf("[ %s ]\n", result)
+	if LexerDebug {
+		dbg("token[%s]", result)
 	}
 	return result
 }
@@ -346,8 +346,8 @@ func (lx *Lexer) internalGetToken() *Token {
 	}
 }
 
-// Unget a token, allowing one-character look ahead
-func (lx *Lexer) unget(tk *Token) error {
+// Unget a token, allowing one-token look ahead
+func (lx *Lexer) Unget(tk *Token) error {
 	if lx.pbToken != nil {
 		lx.lexerState = stInError
 		return fmt.Errorf("internal error: too many token pushbacks")
@@ -360,7 +360,7 @@ func (lx *Lexer) unget(tk *Token) error {
 	return nil
 }
 
-func validNumber(num []byte) bool {
+func validNumber(num []byte) bool { // TODO: octal and binary
 	isHex := false
 	digitOffset := 0
 	if len(num) > 2 && num[0] == byte('0') && isX(num[1]) {

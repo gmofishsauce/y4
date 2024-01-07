@@ -29,9 +29,9 @@ var dflag = flag.Bool("d", false, "enable debug")
 // for a successful parse and passed to the generator.
 //
 // MachineInstructions are created for any line that needs them - not for
-// blank lines, comment-only lines, or .set mnemonics that only affect the
-// symbol table. Make more than one of these for mnemonics that expand into
-// multiple instructions.
+// blank lines, comment-only lines, or pseudo instructions that only affect
+// the symbol table. Make more than one of these for mnemonics that expand
+// into multiple instructions.
 //
 // The key field always holds a symbol index. The ra, rb, and rc fields
 // hold either symbol indices (if MS bit clear) or the actual value, if
@@ -56,7 +56,7 @@ type MachineInstruction struct {
 
 type KeyEntry struct {
 	name string
-	sym SymbolEntry
+	signature uint16
 }
 
 // Operations (key symbols) can have up to three operands. The operand
@@ -64,9 +64,11 @@ type KeyEntry struct {
 // is in bits 3:0, rb in 7:4, and rc in 11:8. Note that operands don't
 // necessarily fit in the fields of a MachineInstruction - .space, for
 // example, can take a 16-bit operand, but doesn't result in the creation
-// of any MachineInstructions.
+// of any MachineInstructions. SignatureElements can be combined by shifts
+// into a uint16. If its signature is 0, there are no operands. If it's
+// less than 0x10, there is 1 operand, etc.
 
-type SignatureElement byte
+type SignatureElement uint16
 
 const (
 	SeNone = SignatureElement(0)
@@ -76,57 +78,79 @@ const (
 	SeImm10 = SignatureElement(4)    // Field is a 10-bit unsigned
 	SeVal16 = SignatureElement(5)    // Field is a 16-bit value
 	SeSym = SignatureElement(6)      // Field is a new symbol
+	SeString = SignatureElement(7)   // Field is a quoted string
 )
 
 // Make a Signature from up to three SignatureElements.
 func sigFor(ra SignatureElement, rb SignatureElement, rc SignatureElement) uint16 {
-	return uint16( ((rc&0xF)<<8) | ((rb&0xF)<<4) | (rc&0xF) )
+	return uint16( ((rc&0xF)<<8) | ((rb&0xF)<<4) | (ra&0xF) )
 }
 
 // Extract the key, ra, rb, or rc signature element
-func getSig(value uint16, elem byte) SignatureElement {
+func getSig(value uint16, elem SignatureElement) SignatureElement {
 	elem &= 0x3
-	return SignatureElement( (value>>(elem*4))&0xF )
+	elem *= 4
+	return SignatureElement((value>>elem)&0xF)
 }
 
-// The allowed mnemonics. This table is entered into the symbol table
-// during initialization.
+// Return the number of operands represented by this Signature.
+// There aren't any operations with 4 operands, but this isn't
+// the place to check that.
+func numOperands(sigHolder uint16) int {
+	if sigHolder == 0 {
+		return 0
+	}
+	if sigHolder < 0x10 {
+		return 1
+	}
+	if sigHolder < 0x100 {
+		return 2
+	}
+	if sigHolder < 0x1000 {
+		return 3
+	}
+	return 4
+}
+
+// The allowed mnemonics and their signatures. This table is
+// entered into the symbol table during initialization.
 var KeyTable []KeyEntry = []KeyEntry{
 	// Operations with two registers and a 7-bit immediate
-	{"adi",    SymbolEntry{SymKey, sigFor(SeReg, SeReg, SeImm7)}},
-	{"beq",    SymbolEntry{SymKey, sigFor(SeReg, SeReg, SeImm7)}},
-	{"lb",     SymbolEntry{SymKey, sigFor(SeReg, SeReg, SeImm7)}},
-	{"lw",     SymbolEntry{SymKey, sigFor(SeReg, SeReg, SeImm7)}},
-	{"sb",     SymbolEntry{SymKey, sigFor(SeReg, SeReg, SeImm7)}},
-	{"sw",     SymbolEntry{SymKey, sigFor(SeReg, SeReg, SeImm7)}},
-	{"lli",    SymbolEntry{SymKey, sigFor(SeReg, SeReg, SeImm6)}},
+	{"adi",    sigFor(SeReg, SeReg, SeImm7)},
+	{"beq",    sigFor(SeReg, SeReg, SeImm7)},
+	{"lb",     sigFor(SeReg, SeReg, SeImm7)},
+	{"lw",     sigFor(SeReg, SeReg, SeImm7)},
+	{"sb",     sigFor(SeReg, SeReg, SeImm7)},
+	{"sw",     sigFor(SeReg, SeReg, SeImm7)},
+	{"lli",    sigFor(SeReg, SeReg, SeImm6)},
 
 	// Special case - lui - one register, one 10-bit immed
-	{"lui",    SymbolEntry{SymKey, sigFor(SeReg, SeImm10, SeNone)}},
+	{"lui",   sigFor(SeReg, SeImm10, SeNone)},
 
 	// 3-operand XOPs
-	{"add",    SymbolEntry{SymKey, sigFor(SeReg, SeReg, SeReg)}},
-	{"sub",    SymbolEntry{SymKey, sigFor(SeReg, SeReg, SeReg)}},
-	{"addc",   SymbolEntry{SymKey, sigFor(SeReg, SeReg, SeReg)}},
-	{"subb",   SymbolEntry{SymKey, sigFor(SeReg, SeReg, SeReg)}},
-	{"nand",   SymbolEntry{SymKey, sigFor(SeReg, SeReg, SeReg)}},
-	{"or",     SymbolEntry{SymKey, sigFor(SeReg, SeReg, SeReg)}},
-	{"xor",    SymbolEntry{SymKey, sigFor(SeReg, SeReg, SeReg)}},
+	{"add",    sigFor(SeReg, SeReg, SeReg)},
+	{"sub",    sigFor(SeReg, SeReg, SeReg)},
+	{"addc",   sigFor(SeReg, SeReg, SeReg)},
+	{"subb",   sigFor(SeReg, SeReg, SeReg)},
+	{"nand",   sigFor(SeReg, SeReg, SeReg)},
+	{"or",     sigFor(SeReg, SeReg, SeReg)},
+	{"xor",    sigFor(SeReg, SeReg, SeReg)},
 
 	// XOPs (or etc.) with fewer than 3 register arguments
-	{"jalr",   SymbolEntry{SymKey, sigFor(SeReg, SeReg, SeNone)}},
-	{"not",    SymbolEntry{SymKey, sigFor(SeReg, SeNone, SeNone)}},
-	{"nop",    SymbolEntry{SymKey, sigFor(SeNone, SeNone, SeNone)}},
-	{"hlt",    SymbolEntry{SymKey, sigFor(SeNone, SeNone, SeNone)}},
-	{"neg",    SymbolEntry{SymKey, sigFor(SeReg, SeNone, SeNone)}},
+	{"jalr",   sigFor(SeReg, SeReg, SeNone)},
+	{"not",    sigFor(SeReg, SeNone, SeNone)},
+	{"nop",    sigFor(SeNone, SeNone, SeNone)},
+	{"hlt",    sigFor(SeNone, SeNone, SeNone)},
+	{"neg",    sigFor(SeReg, SeNone, SeNone)},
 
 	// Pseudo-ops that can accept 16-bit values
-	{"li",     SymbolEntry{SymKey, sigFor(SeReg, SeVal16, SeNone)}},
-	{".align", SymbolEntry{SymKey, sigFor(SeVal16, SeNone, SeNone)}},
-	{".byte",  SymbolEntry{SymKey, sigFor(SeVal16, SeNone, SeNone)}},
-	{".word",  SymbolEntry{SymKey, sigFor(SeVal16, SeNone, SeNone)}},
-	{".space", SymbolEntry{SymKey, sigFor(SeVal16, SeNone, SeNone)}},
-	{".set",   SymbolEntry{SymKey, sigFor(SeSym, SeVal16, SeNone)}},
+	{"li",     sigFor(SeReg, SeVal16, SeNone)},
+	{".align", sigFor(SeVal16, SeNone, SeNone)},
+	{".byte",  sigFor(SeVal16, SeNone, SeNone)},
+	{".word",  sigFor(SeVal16, SeNone, SeNone)},
+	{".space", sigFor(SeVal16, SeNone, SeNone)},
+	{".str",   sigFor(SeString, SeNone, SeNone)},
+	{".set",   sigFor(SeSym, SeVal16, SeNone)},
 }
 
 // Y4 assembler. A general theme with this assembler is that it has
@@ -137,6 +161,11 @@ var KeyTable []KeyEntry = []KeyEntry{
 func main() {
 	flag.Parse()
 	args := flag.Args()
+	if *dflag {
+		LexerDebug = true
+		ParserDebug = true
+		GeneratorDebug = true
+	}
 	if len(args) != 1 {
 		usage()
 	}

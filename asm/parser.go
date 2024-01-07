@@ -25,13 +25,19 @@ import (
 	"os"
 )
 
+var ParserDebug = false
+
 const (				// parser states index parserStateMap
 	StError = iota	// error seen, seeking newline
 	StStartLine		// at start of line
 	StHaveLabel		// have a label, must see an op
-	StHaveOp		// have an op, need 0 or more operands
+	StHaveKey		// have a key, need 0 or more operands
 	StNeedNewline	// have everything, must see newline
 )
+
+var stateToString []string = []string{
+	"StError", "StStartLine", "StHaveLabel", "StHaveKey", "StNeedNewline",
+}
 
 type stateHandler func(ctx *parserContext, t *Token)
 
@@ -48,13 +54,15 @@ var parserFunctionMap []stateHandler = []stateHandler {
 type parserContext struct { // bag o' context
 	srcPath string
 	srcLine int
-	dot uint16
 	errorCount int
 	instructions []MachineInstruction
 	state int
 	key string
 	operands []string
+	opindex int
 	syms *SymbolTable
+	dot uint16
+	signature uint16
 }
 
 // Parser
@@ -87,6 +95,9 @@ func parse(srcPath string) (*[]MachineInstruction, error) {
 	// the error state and move on. Otherwise hand off to one of
 	// a few state-specific handlers.
 	for t := lx.GetToken(); t.Kind() != TkEOF; t = lx.GetToken() {
+		if ParserDebug {
+			dbg("parser state %s", stateToString[ctx.state])
+		}
 		if t.Kind() == TkError {
 			report(ctx, t.Text())
 			ctx.state = StError
@@ -133,13 +144,14 @@ func doErrorState(ctx *parserContext, t *Token) {
 	}
 }
 
-// Line start state. Handle labels and operation symbols.
+// Line start state. Handle labels and operation symbols. All TkError
+// tokens are handled in the caller and don't make it here.
 func doStartLineState(ctx *parserContext, t *Token) {
 	switch t.Kind() {
 	case TkNewline:
 		ctx.srcLine++
 	case TkLabel:
-		if err := ctx.syms.defineSymbol(t.Text(), SymLabel, ctx.dot); err != nil {
+		if _, err := ctx.syms.DefineSymbol(t.Text(), ctx.dot); err != nil {
 			report(ctx, err.Error())
 		}
 		ctx.state = StHaveLabel
@@ -151,25 +163,46 @@ func doStartLineState(ctx *parserContext, t *Token) {
 	}
 }
 
+// Get a key symbol or issue an error
 func doHaveLabelState(ctx *parserContext, t *Token) {
-/*
 	switch t.Kind() {
 	case TkSymbol:
-		if ctx.syms.isKeySymbol(t.Text()) {
-			ctx.key = t.Text()
-			ctx.state = StHaveOp
+		symValue, err := ctx.syms.Get(t.Text())
+		if err != nil {
+			report(ctx, "unexpected: %s", t.Text())
 		} else {
-			report(ctx, "not a opcode: %s", t.Text())
+			ctx.key = t.Text()
+			ctx.state = StHaveKey
+			ctx.opindex = 0
+			ctx.operands = []string{}
+			ctx.signature = symValue
 		}
+	case TkNewline:
+		// I think in this case we'll enter the error state,
+		// which will cause the entire following line to be
+		// skipped in order to resynchronize. Since the parse
+		// has failed and we're just making a best effort to
+		// report additional errors from here on out, this
+		// is not worth fixing.
+		report(ctx, "short line")
 	default:
-		report("unexpected: %s", t.Text())
+		report(ctx, "unexpected: %s", t.Text())
 	}
-*/
-	ctx.state = StHaveOp
 }
 
 func doHaveOpState(ctx *parserContext, t *Token) {
-	ctx.state = StHaveOp
+	if ctx.opindex >= numOperands(ctx.signature) {
+		ctx.state = StNeedNewline
+		doNeedLineEndState(ctx, t)
+	}
+
+	switch t.Kind() {
+	case TkSymbol, TkLabel:
+		ctx.operands[ctx.opindex] = t.Text()
+	case TkNumber:
+	case TkOperator:
+	default:
+	}
 }
 
 func doNeedLineEndState(ctx *parserContext, t *Token) {
@@ -183,7 +216,7 @@ func report(ctx *parserContext, msg string, args ...any) {
 	for _, a := range args {
 		actuals = append(actuals, a)
 	}
-	fmt.Fprintf(os.Stderr, "%s, line %d: "+msg+"\n", actuals...)
+	fmt.Fprintf(os.Stderr, "error: %s, line %d: "+msg+"\n", actuals...)
 
 	ctx.state = StError
 	ctx.errorCount++
