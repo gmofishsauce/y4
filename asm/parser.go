@@ -60,6 +60,7 @@ type parserContext struct { // bag o' context
 	srcLine int
 	errorCount int
 	dot uint16
+	opcode uint16
 	signature uint16
 	opindex uint16
 	numoperands uint16
@@ -77,10 +78,10 @@ type parserContext struct { // bag o' context
 // any future lines on this run, but continue processing to detect
 // additional errors. FIXME TODO
 
-func parse(srcPath string) (*[]MachineInstruction, error) {
+func Parse(srcPath string) (*SymbolTable, *[]MachineInstruction, error) {
 	lx, err := MakeFileLexer(srcPath)
 	if err != nil {
-		return &[]MachineInstruction{}, err
+		return nil, nil, err
 	}
 	defer lx.Close()
 
@@ -130,7 +131,11 @@ func parse(srcPath string) (*[]MachineInstruction, error) {
 		}
 		err = fmt.Errorf("%d error%s", ctx.errorCount, s)
 	}
-	return &ctx.instructions, err
+
+	if ParserDebug {
+		ctx.symtab.dump()
+	}
+	return ctx.symtab, &ctx.instructions, err
 }
 
 // Parser state machine functions. These functions are never passed error
@@ -171,24 +176,31 @@ func doBetweenLines(ctx *parserContext, t *Token) bool {
 func doNeedKey(ctx *parserContext, t *Token) bool {
 	switch t.Kind() {
 	case TkSymbol:
-		value, index, err := ctx.symtab.Get(t.Text())
+		// Key symbols have two values, a signature and an opcode.
+		// They are in the symbol table twice, once under their own
+		// name and once under a prefixed string that isn't a legal
+		// user symbol.
+		sig, _, err := ctx.symtab.Get(t.Text())
 		if err != nil {
-			report(ctx, "unexpected: %s", t.Text())
+			report(ctx, "key unknown: %s", t.Text())
+			break
+		}
+		op, _, err := ctx.symtab.Get(OpcodePrefix+t.Text())
+		if err != nil { // shouldn't happen
+			report(ctx, "internal error: no opcode for %s", t.Text())
+			break
+		}
+		ctx.opcode = op
+		ctx.signature = sig
+		ctx.numoperands = numOperands(ctx.signature)
+		ctx.instructions = append(ctx.instructions, MachineInstruction{})
+		// These must be updated per operand:
+		ctx.opindex = Ra
+		ctx.positive = true
+		if ctx.numoperands > 0 {
+			ctx.state = StNeedExpression
 		} else {
-			// save key symbol index in machine instruction
-			// stash signature temporarily in context
-			ctx.instructions = append(ctx.instructions, MachineInstruction{})
-			ctx.instructions[ctx.dot].parts[Key] = index
-			ctx.signature = value
-			ctx.numoperands = numOperands(ctx.signature)
-			// update these per-operand:
-			ctx.opindex = Ra
-			ctx.positive = true
-			if ctx.numoperands > 0 {
-				ctx.state = StNeedExpression
-			} else {
-				ctx.state = StNeedNewline
-			}
+			ctx.state = StNeedNewline
 		}
 	default:
 		report(ctx, "unexpected: %s", t.Text())
@@ -226,6 +238,10 @@ func doNeedExpression(ctx *parserContext, t *Token) bool {
 		if !ctx.positive {
 			value = -value
 		}
+		// The largest value of a number that can appear in a machine
+		// instruction is 10 bits (0x3FF). So whether "signed" or
+		// "unsigned", it fits in the uint16 with space for the upper
+		// flag bit that distinguishes symbol table entries from values.
 		var immed uint16 = uint16(value&0x3FF)
 		ctx.instructions[ctx.dot].parts[ctx.opindex] = IsValue | immed
 		ctx.positive = true

@@ -65,7 +65,8 @@ const IsValue uint16 = 0x8000 // set in parts[n] if it's a value
 
 type KeyEntry struct {
 	name string
-	signature uint16
+	opcode uint16     // fixed opcode bits
+	signature uint16  // see below
 }
 
 // Operations (key symbols) can have up to three operands. The operand
@@ -105,8 +106,6 @@ func getSig(value uint16, whichElement uint16) SignatureElement {
 }
 
 // Return the number of operands represented by this Signature.
-// There aren't any operations with 4 operands, but this isn't
-// the place to check that.
 func numOperands(signature uint16) uint16 {
 	if signature == 0 {
 		return 0
@@ -124,41 +123,64 @@ func numOperands(signature uint16) uint16 {
 // entered into the symbol table during initialization.
 var KeyTable []KeyEntry = []KeyEntry{
 	// Operations with two registers and a 7-bit immediate
-	{"adi",    sigFor(SeReg, SeReg, SeImm7)},
-	{"beq",    sigFor(SeReg, SeReg, SeImm7)},
-	{"lb",     sigFor(SeReg, SeReg, SeImm7)},
-	{"lw",     sigFor(SeReg, SeReg, SeImm7)},
-	{"sb",     sigFor(SeReg, SeReg, SeImm7)},
-	{"sw",     sigFor(SeReg, SeReg, SeImm7)},
-	{"lli",    sigFor(SeReg, SeReg, SeImm6)},
-
-	// Special case - lui - one register, one 10-bit immed
-	{"lui",   sigFor(SeReg, SeImm10, SeNone)},
+	{"ldw",    0x0000, sigFor(SeReg, SeReg, SeImm7)},
+	{"ldb",    0x2000, sigFor(SeReg, SeReg, SeImm7)},
+	{"stw",    0x4000, sigFor(SeReg, SeReg, SeImm7)},
+	{"stb",    0x6000, sigFor(SeReg, SeReg, SeImm7)},
+	{"beq",    0x8000, sigFor(SeReg, SeReg, SeImm7)},
+	{"adi",    0xA000, sigFor(SeReg, SeReg, SeImm7)},
+	{"lli",    0xA000, sigFor(SeReg, SeReg, SeImm6)}, // adi rT, rS, imm&0x3F
+	{"lui",    0xC000, sigFor(SeReg, SeImm10, SeNone)},
+	{"jlr",    0xE000, sigFor(SeReg, SeReg, SeImm6)},
+	{"nop",    0xA000, sigFor(SeReg, SeReg, SeImm7)}, // adi r0, r0, 0
 
 	// 3-operand XOPs
-	{"add",    sigFor(SeReg, SeReg, SeReg)},
-	{"sub",    sigFor(SeReg, SeReg, SeReg)},
-	{"addc",   sigFor(SeReg, SeReg, SeReg)},
-	{"subb",   sigFor(SeReg, SeReg, SeReg)},
-	{"nand",   sigFor(SeReg, SeReg, SeReg)},
-	{"or",     sigFor(SeReg, SeReg, SeReg)},
-	{"xor",    sigFor(SeReg, SeReg, SeReg)},
+	{"add",    0xF000, sigFor(SeReg, SeReg, SeReg)},
+	{"adc",    0xF200, sigFor(SeReg, SeReg, SeReg)},
+	{"sub",    0xF400, sigFor(SeReg, SeReg, SeReg)},
+	{"sbb",    0xF600, sigFor(SeReg, SeReg, SeReg)},
+	{"bic",    0xF800, sigFor(SeReg, SeReg, SeReg)},
+	{"or",     0xFA00, sigFor(SeReg, SeReg, SeReg)},
+	{"xor",    0xFC00, sigFor(SeReg, SeReg, SeReg)},
 
-	// XOPs (or etc.) with fewer than 3 register arguments
-	{"jalr",   sigFor(SeReg, SeReg, SeNone)},
-	{"not",    sigFor(SeReg, SeNone, SeNone)},
-	{"nop",    sigFor(SeNone, SeNone, SeNone)},
-	{"hlt",    sigFor(SeNone, SeNone, SeNone)},
-	{"neg",    sigFor(SeReg, SeNone, SeNone)},
+	// 2 operand YOPs
+	{"ior",    0xFE00, sigFor(SeReg, SeReg, SeNone)},
+	{"iow",    0xFE40, sigFor(SeReg, SeReg, SeNone)},
+	{"FE8",    0xFE80, sigFor(SeReg, SeReg, SeNone)}, // unassigned
+	{"FEC",    0xFEC0, sigFor(SeReg, SeReg, SeNone)}, // unassigned
+	{"FF0",    0xFF00, sigFor(SeReg, SeReg, SeNone)}, // unassigned
+	{"FF4",    0xFF40, sigFor(SeReg, SeReg, SeNone)}, // unassigned
+	{"sys",    0xFF80, sigFor(SeReg, SeReg, SeNone)},
 
-	// Pseudo-ops that can accept 16-bit values
-	{"li",     sigFor(SeReg, SeVal16, SeNone)},
-	{".align", sigFor(SeVal16, SeNone, SeNone)},
-	{".byte",  sigFor(SeVal16, SeNone, SeNone)},
-	{".word",  sigFor(SeVal16, SeNone, SeNone)},
-	{".space", sigFor(SeVal16, SeNone, SeNone)},
-	{".str",   sigFor(SeString, SeNone, SeNone)},
-	{".set",   sigFor(SeSym, SeVal16, SeNone)},
+	// 1 operand ZOPs
+	{"not",    0xFFC0, sigFor(SeReg, SeNone, SeNone)},
+	{"neg",    0xFFC8, sigFor(SeReg, SeNone, SeNone)},
+	{"swb",    0xFFD0, sigFor(SeReg, SeNone, SeNone)},
+	{"sxt",    0xFFD8, sigFor(SeReg, SeNone, SeNone)},
+	{"lsr",    0xFFE0, sigFor(SeReg, SeNone, SeNone)},
+	{"lsl",    0xFFE8, sigFor(SeReg, SeNone, SeNone)},
+	{"asr",    0xFFF0, sigFor(SeReg, SeNone, SeNone)},
+
+	// 0 operand VOPs
+	{"src",    0xFFF8, sigFor(SeNone, SeNone, SeNone)},
+	{"FF9",    0xFFF9, sigFor(SeNone, SeNone, SeNone)}, // unassigned
+	{"FFA",    0xFFFA, sigFor(SeNone, SeNone, SeNone)}, // unassigned
+	{"FFB",    0xFFFB, sigFor(SeNone, SeNone, SeNone)}, // unassigned
+	{"FFC",    0xFFFC, sigFor(SeNone, SeNone, SeNone)}, // unassigned
+	{"FFD",    0xFFFD, sigFor(SeNone, SeNone, SeNone)}, // unassigned
+	{"brk",    0xFFFE, sigFor(SeNone, SeNone, SeNone)},
+	{"die",    0xFFFF, sigFor(SeNone, SeNone, SeNone)},
+
+	// Pseudo-ops that can accept 16-bit values. These
+	// do not result in machine instructions so their
+	// opcodes are set to "die" (illegal instruction trap).
+	{"ldi",    0xFFFF, sigFor(SeReg, SeVal16, SeNone)},
+	{".align", 0xFFFF, sigFor(SeVal16, SeNone, SeNone)},
+	{".byte",  0xFFFF, sigFor(SeVal16, SeNone, SeNone)},
+	{".word",  0xFFFF, sigFor(SeVal16, SeNone, SeNone)},
+	{".space", 0xFFFF, sigFor(SeVal16, SeNone, SeNone)},
+	{".string",0xFFFF, sigFor(SeString, SeNone, SeNone)},
+	{".set",   0xFFFF, sigFor(SeSym, SeVal16, SeNone)},
 }
 
 // Y4 assembler. A general theme with this assembler is that it has
@@ -177,11 +199,11 @@ func main() {
 	if len(args) != 1 {
 		usage()
 	}
-	instructions, err := parse(args[0])
+	symbols, instructions, err := Parse(args[0])
 	if err != nil {
 		fatal(fmt.Sprintf("%s: %s\n", args[0], err.Error()))
 	}
-	err = generate(instructions)
+	err = Generate(symbols, instructions)
 	if err != nil {
 		fatal(fmt.Sprintf("%s: %s\n", args[0], err.Error()))
 	}

@@ -52,10 +52,15 @@ type SymbolTable struct {
 	entries []symbolEntry
 }
 
+const OpcodePrefix string = "op$" // see below
+
 // Initialize the symtab by creating all the reserved entries. The first
 // 8 entries in the symbol table are the registers r0..r7. This creates an
 // identity mapping so that e.g. SymbolTable.indexes["r5"] == 5. Then add
-// all the key symbols.
+// all the key symbols. Key symbols each need two 16-bit values, an opcode
+// and a signature. The best hack I've been able to come up with is to make
+// two entries for each key symbol, one under its own name and one under a
+// fixed variant. We use op$mnemonic.
 func MakeSymbolTable() *SymbolTable {
 	symTab := &SymbolTable{}
 	symTab.indexes = make(map[string]uint16)
@@ -66,6 +71,9 @@ func MakeSymbolTable() *SymbolTable {
 	}
 	for _, keyEntry := range KeyTable {
 		symTab.internalCreateSymbol(keyEntry.name, symDefined, keyEntry.signature)
+	}
+	for _, keyEntry := range KeyTable { // hack for the second value, opcode
+		symTab.internalCreateSymbol(OpcodePrefix + keyEntry.name, symDefined, keyEntry.opcode)
 	}
 
 	return symTab
@@ -110,8 +118,6 @@ func (st *SymbolTable) internalCreateSymbol(name string, flags uint16, value uin
 }
 
 // Get the value and symbol index of a defined symbol.
-// XXX - it's easy to misinterpret the order of the first two return value - ugly
-// XXX - to get the index of a symbol that's used by not defined, Use()
 func (st *SymbolTable) Get(name string) (value uint16, index uint16, err error) {
 	index, ok := st.indexes[name]
 	if !ok {
@@ -124,11 +130,23 @@ func (st *SymbolTable) Get(name string) (value uint16, index uint16, err error) 
 	return entry.value, index, nil
 }
 
+func (st *SymbolTable) Index(index uint16) (value uint16, err error) {
+	result := st.entries[index]
+	return result.value, nil
+}
+
 // Negate the value of a symbol. The symbol need not be defined yet, because
 // the language allows e.g. adi r1, r2, -foo and then later .set foo 19. This
 // is a hack around not having a real expression parser.
 func (st *SymbolTable) Negate(index uint16) error {
 	st.entries[index].flags |= symNegated
 	return nil
+}
+
+func (st *SymbolTable) dump() {
+	dbg("SymbolTable:")
+	for key, index := range st.indexes {
+		dbg("%10s at %4d: 0x%04X 0x%04X", key, index, st.entries[index].flags, st.entries[index].value)
+	}
 }
 
