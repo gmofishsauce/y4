@@ -18,13 +18,29 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 package main
 
 import (
+	"fmt"
+	"runtime"
 	"strings"
 	"testing"
 )
 
+func tLogN(n int, s string, args... any) string {
+	var info string
+    pc, _, _, ok := runtime.Caller(n)
+	if ok {
+		caller := runtime.FuncForPC(pc)
+		_, line := caller.FileLine(pc)
+		name := caller.Name()
+		name = name[1+strings.LastIndex(name, "."):]
+		info = fmt.Sprintf("at line %d in %s(): ", line, name)
+	}
+	return fmt.Sprintf(info+s, args...)
+}
+
 func check(t *testing.T, a1 any, a2 any) {
 	if a1 != a2 {
-		t.Errorf("%[1]v (type \"%[1]T\") != %[2]v (type \"%[2]T\")", a1, a2)
+		t.Logf(tLogN(2, "%[1]v (type \"%[1]T\") != %[2]v (type \"%[2]T\")", a1, a2))
+		t.Fail()
 	}
 }
 

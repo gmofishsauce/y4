@@ -23,46 +23,47 @@ along with this program. If not, see http://www.gnu.org/licenses/.
 import (
 	"fmt"
 	"os"
+	"strconv"
 )
 
 var ParserDebug = false
 
-const (				// parser states index parserStateMap
-	StError = iota	// error seen, seeking newline
-	StStartLine		// at start of line
-	StHaveLabel		// have a label, must see an op
-	StHaveKey		// have a key, need 0 or more operands
-	StNeedNewline	// have everything, must see newline
+const (              // parser states index parserStateMap
+	StError = iota   // error seen, seeking newline
+	StBetweenLines   // at start of line
+	StNeedKey        // have a label if any, need a key
+	StNeedExpression // have a key, need operand
+	StNeedNewline    // have everything, must see newline
 )
 
 var stateToString []string = []string{
-	"StError", "StStartLine", "StHaveLabel", "StHaveKey", "StNeedNewline",
+	"StError", "StBetweenLines", "StNeedKey", "StNeedExpression", "StNeedNewline",
 }
 
-type stateHandler func(ctx *parserContext, t *Token)
+type stateHandler func(ctx *parserContext, t *Token)(consumed bool)
 
 // We have one handler function for each parser state. The
 // table is index by the parser states, above.
 var parserFunctionMap []stateHandler = []stateHandler {
-	doErrorState,
-	doStartLineState,
-	doHaveLabelState,
-	doHaveOpState,
-	doNeedLineEndState,
+	doError,
+	doBetweenLines,
+	doNeedKey,
+	doNeedExpression,
+	doNeedNewline,
 }
 
 type parserContext struct { // bag o' context
 	srcPath string
+	instructions []MachineInstruction
+	symtab *SymbolTable
+	state int
 	srcLine int
 	errorCount int
-	instructions []MachineInstruction
-	state int
-	key string
-	operands []string
-	opindex int
-	syms *SymbolTable
 	dot uint16
 	signature uint16
+	opindex uint16
+	numoperands uint16
+	positive bool
 }
 
 // Parser
@@ -87,16 +88,16 @@ func parse(srcPath string) (*[]MachineInstruction, error) {
 		srcPath: srcPath, srcLine: 1,
 		dot: 0, errorCount: 0,
 		instructions: make([]MachineInstruction, 0, 32),
-		state: StStartLine,
-		syms: MakeSymbolTable(),
+		state: StBetweenLines,
+		symtab: MakeSymbolTable(),
 	}
 
-	// Process one token per iteration. If we see an error,  enter
-	// the error state and move on. Otherwise hand off to one of
-	// a few state-specific handlers.
+	// Process one token per iteration. If we see an error token from
+	// the lexer, enter the error state and move on. Otherwise hand off
+	// to one of a few state-specific handlers.
 	for t := lx.GetToken(); t.Kind() != TkEOF; t = lx.GetToken() {
 		if ParserDebug {
-			dbg("parser state %s", stateToString[ctx.state])
+			dbg("parser state %s token %s", stateToString[ctx.state], t)
 		}
 		if t.Kind() == TkError {
 			report(ctx, t.Text())
@@ -104,12 +105,18 @@ func parse(srcPath string) (*[]MachineInstruction, error) {
 			continue
 		}
 
-		// Handle one token in the current state
-		parserFunctionMap[ctx.state](ctx, t)
+		consume := parserFunctionMap[ctx.state](ctx, t)
+		if !consume {
+			lx.Unget(t)
+		}
+
+		if t.Kind() == TkNewline {
+			ctx.srcLine++
+		}
 	}
 
 	// EOF seen - end of file processing
-	if ctx.state != StStartLine {
+	if ctx.state != StBetweenLines {
 		// trailing newline triggers processing,
 		// so any source file that ends mid-line
 		// is guaranteed to have problems.
@@ -126,87 +133,130 @@ func parse(srcPath string) (*[]MachineInstruction, error) {
 	return &ctx.instructions, err
 }
 
-/* FIXME remove
-var TkError TokenKindType = TokenKindType{0}
-var TkNewline TokenKindType = TokenKindType{1}
-var TkSymbol TokenKindType = TokenKindType{2}
-var TkLabel TokenKindType = TokenKindType{3}
-var TkString TokenKindType = TokenKindType{4}
-var TkNumber TokenKindType = TokenKindType{5}
-var TkOperator TokenKindType = TokenKindType{6}
-var TkEOF TokenKindType = TokenKindType{7}
-*/
+// Parser state machine functions. These functions are never passed error
+// tokens as their argument; these are handled by the caller. These functions
+// don't have to count source lines; this is handled by the caller.
 
 // In error state. Ignore everything until newline.
-func doErrorState(ctx *parserContext, t *Token) {
+func doError(ctx *parserContext, t *Token) bool {
 	if t.Kind() == TkNewline {
-		ctx.state = StStartLine
+		ctx.state = StBetweenLines
 	}
+	return true
 }
 
 // Line start state. Handle labels and operation symbols. All TkError
 // tokens are handled in the caller and don't make it here.
-func doStartLineState(ctx *parserContext, t *Token) {
+func doBetweenLines(ctx *parserContext, t *Token) bool {
+	consume := true
 	switch t.Kind() {
-	case TkNewline:
-		ctx.srcLine++
 	case TkLabel:
-		if _, err := ctx.syms.DefineSymbol(t.Text(), ctx.dot); err != nil {
+		if _, err := ctx.symtab.Define(t.Text(), ctx.dot); err != nil {
 			report(ctx, err.Error())
 		}
-		ctx.state = StHaveLabel
+		ctx.state = StNeedKey
 	case TkSymbol:
-		ctx.state = StHaveLabel
-		doHaveLabelState(ctx, t)
+		ctx.state = StNeedKey
+		consume = false
+	case TkNewline:
+		// nothing happens...
 	default:
 		report(ctx, "unexpected: %s", t.String())	
 	}
+	return consume
 }
 
-// Get a key symbol or issue an error
-func doHaveLabelState(ctx *parserContext, t *Token) {
+// Get a key symbol or issue an error. If the key symbol has operands,
+// enter the NeedExpression state; otherwise, the NeedNewline state.
+func doNeedKey(ctx *parserContext, t *Token) bool {
 	switch t.Kind() {
 	case TkSymbol:
-		symValue, err := ctx.syms.Get(t.Text())
+		value, index, err := ctx.symtab.Get(t.Text())
 		if err != nil {
 			report(ctx, "unexpected: %s", t.Text())
 		} else {
-			ctx.key = t.Text()
-			ctx.state = StHaveKey
-			ctx.opindex = 0
-			ctx.operands = []string{}
-			ctx.signature = symValue
+			// save key symbol index in machine instruction
+			// stash signature temporarily in context
+			ctx.instructions = append(ctx.instructions, MachineInstruction{})
+			ctx.instructions[ctx.dot].parts[Key] = index
+			ctx.signature = value
+			ctx.numoperands = numOperands(ctx.signature)
+			// update these per-operand:
+			ctx.opindex = Ra
+			ctx.positive = true
+			if ctx.numoperands > 0 {
+				ctx.state = StNeedExpression
+			} else {
+				ctx.state = StNeedNewline
+			}
 		}
-	case TkNewline:
-		// I think in this case we'll enter the error state,
-		// which will cause the entire following line to be
-		// skipped in order to resynchronize. Since the parse
-		// has failed and we're just making a best effort to
-		// report additional errors from here on out, this
-		// is not worth fixing.
-		report(ctx, "short line")
 	default:
 		report(ctx, "unexpected: %s", t.Text())
 	}
+	return true
 }
 
-func doHaveOpState(ctx *parserContext, t *Token) {
-	if ctx.opindex >= numOperands(ctx.signature) {
-		ctx.state = StNeedNewline
-		doNeedLineEndState(ctx, t)
-	}
-
+// This is our somewhat silly expression parser. Numbers and labels are
+// Values. An expression is zero or more optional minus signs followed
+// by a Value. There's also a string type, which has a signature code and
+// is used with exactly one purpose-built keyword.
+func doNeedExpression(ctx *parserContext, t *Token) bool {
 	switch t.Kind() {
-	case TkSymbol, TkLabel:
-		ctx.operands[ctx.opindex] = t.Text()
+	case TkSymbol:
+		index, err := ctx.symtab.Use(t.Text())
+		if err != nil {
+			report(ctx, "internal error: %s", err.Error())
+			break
+		}
+		if !ctx.positive {
+			ctx.symtab.Negate(index)
+		}
+		ctx.instructions[ctx.dot].parts[ctx.opindex] = index
+		ctx.positive = true
+		ctx.opindex++
+		if ctx.opindex > ctx.numoperands {
+			ctx.state = StNeedNewline
+		}
 	case TkNumber:
+		value, err := strconv.ParseInt(t.Text(), 0, 0)
+		if err != nil {
+			report(ctx, "internal error: ParseInt(): %s", err.Error())
+			break
+		}
+		if !ctx.positive {
+			value = -value
+		}
+		var immed uint16 = uint16(value&0x3FF)
+		ctx.instructions[ctx.dot].parts[ctx.opindex] = IsValue | immed
+		ctx.positive = true
+		ctx.opindex++
+		if ctx.opindex > ctx.numoperands {
+			ctx.state = StNeedNewline
+		}
 	case TkOperator:
+		if t.Text() == "-" {
+			ctx.positive = !ctx.positive
+		} else {
+			report(ctx, "unexpected: %s", t.Text())
+		}
 	default:
+		report(ctx, "unexpected: %s", t.Text())
 	}
+	return true
 }
 
-func doNeedLineEndState(ctx *parserContext, t *Token) {
-	ctx.state = StNeedNewline
+func doNeedNewline(ctx *parserContext, t *Token) bool {
+	if t.Kind() != TkNewline {
+		report(ctx, "unexpected at end of line: %s", t.Text())
+	}
+
+    ctx.state = StBetweenLines
+    ctx.dot++
+    ctx.signature = 0
+    ctx.opindex = 0
+    ctx.numoperands = 0
+    ctx.positive = true
+	return true
 }
 
 // This function prints an error, counts the error and then changes
@@ -217,7 +267,6 @@ func report(ctx *parserContext, msg string, args ...any) {
 		actuals = append(actuals, a)
 	}
 	fmt.Fprintf(os.Stderr, "error: %s, line %d: "+msg+"\n", actuals...)
-
 	ctx.state = StError
 	ctx.errorCount++
 }

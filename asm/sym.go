@@ -28,7 +28,8 @@ import (
 // symbols because it's adequate and it's convenient for other parts of the
 // implementation (symbol indexes are always positive).
 const MaxSymbols = 0x7FFE
-const NoSymbol = 0x7FFF
+const NoValue uint16 = 0x7FFF   // Returned when cannot get the value of a symbol
+const NoSymbol uint16 = 0x7FFF	// Returned when cannot get the index of a symbol
 
 // Undefined symbols can later become defined. The value of a defined
 // symbol may not be changed. Symbols can be negated before definition.
@@ -71,8 +72,8 @@ func MakeSymbolTable() *SymbolTable {
 }
 
 // Define a symbol. The symbol may not exist or may exist in the undefined state
-// Return the symbol's index, a uint16 less than 0x8000.
-func (st *SymbolTable) DefineSymbol(name string, value uint16) (uint16, error) {
+// Return the symbol's index, a uint16 <= MaxSymbols.
+func (st *SymbolTable) Define(name string, value uint16) (uint16, error) {
 	index, exists := st.indexes[name]
 	if exists {
 		entry := st.entries[index]
@@ -82,20 +83,22 @@ func (st *SymbolTable) DefineSymbol(name string, value uint16) (uint16, error) {
 		entry.flags |= symDefined
 		return index, nil
 	}
-	st.internalCreateSymbol(name, symDefined, value)
-	return index, nil
+	return st.internalCreateSymbol(name, symDefined, value)
 }
 
 // A symbol use has been seen. The symbol may or may not be exist; if not, we
-// enter it as an undefined symbols. 
-func (st *SymbolTable) UseSymbol(name string, value uint16) (uint16, error) {
+// enter it as an undefined symbol (forward reference).
+func (st *SymbolTable) Use(name string) (uint16, error) {
 	index, exists := st.indexes[name]
 	if exists {
 		return index, nil
 	}
-	return st.internalCreateSymbol(name, 0, value)
+	return st.internalCreateSymbol(name, 0, NoValue)
 }
 
+// Add a symbol to the symbol table. The added symbol may be "defined" or simply "used".
+// If the symbol was used before definition, the value will be NoValue.
+// Return the index of the symbol entry or an error indicating symbol table overflow.
 func (st *SymbolTable) internalCreateSymbol(name string, flags uint16, value uint16) (uint16, error) {
 	if len(st.entries) == MaxSymbols {
 		return NoSymbol, fmt.Errorf("symbol table overflow")
@@ -106,25 +109,25 @@ func (st *SymbolTable) internalCreateSymbol(name string, flags uint16, value uin
 	return index, nil
 }
 
-func (st *SymbolTable) Get(name string) (value uint16, err error) {
+// Get the value and symbol index of a defined symbol.
+// XXX - it's easy to misinterpret the order of the first two return value - ugly
+// XXX - to get the index of a symbol that's used by not defined, Use()
+func (st *SymbolTable) Get(name string) (value uint16, index uint16, err error) {
 	index, ok := st.indexes[name]
 	if !ok {
-		return NoSymbol, fmt.Errorf("undefined: %s", name)
+		return NoValue, NoSymbol, fmt.Errorf("undefined: %s", name)
 	}
 	entry := st.entries[index]
 	if entry.flags&symDefined == 0 {
-		return NoSymbol, fmt.Errorf("undefined: %s", name)
+		return NoValue, index, fmt.Errorf("used by not defined: %s", name)
 	}
-	return entry.value, nil
+	return entry.value, index, nil
 }
 
 // Negate the value of a symbol. The symbol need not be defined yet, because
-// the language allows e.g. adi r1, r2, -foo and then later .set foo 19.
-func (st *SymbolTable) Negate(name string) error {
-	index, ok := st.indexes[name]
-	if !ok {
-		return fmt.Errorf("%s undefined", name)
-	}
+// the language allows e.g. adi r1, r2, -foo and then later .set foo 19. This
+// is a hack around not having a real expression parser.
+func (st *SymbolTable) Negate(index uint16) error {
 	st.entries[index].flags |= symNegated
 	return nil
 }
