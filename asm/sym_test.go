@@ -30,7 +30,7 @@ func TestSym1(t *testing.T) {
 
 	value, index, err = st.Get("nop")
 	check(t, err, nil)
-	check(t, value, uint16(0x3110)) // rT, rSrc, imm:7
+	check(t, value, uint16(0)) // rT, rSrc, imm:7
 	if index == NoSymbol || index > uint16(8 + len(KeyTable)) {
 		t.Errorf("st.Get(\"nop\"): bad index")
 	}

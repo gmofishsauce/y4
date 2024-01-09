@@ -129,10 +129,8 @@ var KeyTable []KeyEntry = []KeyEntry{
 	{"stb",    0x6000, sigFor(SeReg, SeReg, SeImm7)},
 	{"beq",    0x8000, sigFor(SeReg, SeReg, SeImm7)},
 	{"adi",    0xA000, sigFor(SeReg, SeReg, SeImm7)},
-	{"lli",    0xA000, sigFor(SeReg, SeReg, SeImm6)}, // adi rT, rS, imm&0x3F
 	{"lui",    0xC000, sigFor(SeReg, SeImm10, SeNone)},
 	{"jlr",    0xE000, sigFor(SeReg, SeReg, SeImm6)},
-	{"nop",    0xA000, sigFor(SeReg, SeReg, SeImm7)}, // adi r0, r0, 0
 
 	// 3-operand XOPs
 	{"add",    0xF000, sigFor(SeReg, SeReg, SeReg)},
@@ -167,13 +165,20 @@ var KeyTable []KeyEntry = []KeyEntry{
 	{"FFA",    0xFFFA, sigFor(SeNone, SeNone, SeNone)}, // unassigned
 	{"FFB",    0xFFFB, sigFor(SeNone, SeNone, SeNone)}, // unassigned
 	{"FFC",    0xFFFC, sigFor(SeNone, SeNone, SeNone)}, // unassigned
-	{"FFD",    0xFFFD, sigFor(SeNone, SeNone, SeNone)}, // unassigned
-	{"brk",    0xFFFE, sigFor(SeNone, SeNone, SeNone)},
-	{"die",    0xFFFF, sigFor(SeNone, SeNone, SeNone)},
+	{"brk",    0xFFFD, sigFor(SeNone, SeNone, SeNone)},
+	{"hlt",    0xFFFE, sigFor(SeNone, SeNone, SeNone)},
+	{"die",    0xFFFF, sigFor(SeNone, SeNone, SeNone)}, // illegal
 
-	// Pseudo-ops that can accept 16-bit values. These
-	// do not result in machine instructions so their
-	// opcodes are set to "die" (illegal instruction trap).
+	// Pseudo-ops that are aliases to other instructions
+	{"lli",    0xA000, sigFor(SeReg, SeImm6, SeNone)},  // adi rT, rS, imm&0x3F
+	{"nop",    0xA000, sigFor(SeNone, SeNone, SeNone)}, // adi r0, r0, 0
+
+	// Pseudo-ops. Some can accept 16-bit args. The ones that start
+	// with dots do not result in machine instructions so their opcodes
+	// are set to "die" (illegal instruction trap). They have to be
+	// handled by the parser since we have no way to store 16-bit values
+	// in the symbol table (so no way to pass the value from the parser
+	// to the code generator/emitter).
 	{"ldi",    0xFFFF, sigFor(SeReg, SeVal16, SeNone)},
 	{".align", 0xFFFF, sigFor(SeVal16, SeNone, SeNone)},
 	{".byte",  0xFFFF, sigFor(SeVal16, SeNone, SeNone)},
