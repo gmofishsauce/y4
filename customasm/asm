@@ -70,7 +70,12 @@ cat > ${RULES} << 'EOF'
     r7 => 0o7
 }
 
-#subruledef srg ; special registers
+#subruledef wsr ; special registers that can be written
+{
+	psw => 0o0 ; read/write
+}
+
+#subruledef rsr ; special registers that can be read
 {
 	psw => 0o0 ; read/write
 	lnk => 0o1 ; read only - written by jlr
@@ -82,19 +87,24 @@ cat > ${RULES} << 'EOF'
 	{imm: i3} => imm
 }
 
-#subruledef imm6
+#subruledef imm6 ; for positive 6-bit immediates in a 7-bit field
 {
 	{imm: i6} => imm
 }
 
-#subruledef imm7
+#subruledef imm7 ; 7-bit immediate used in several instructions
 {
 	{imm: i7} => imm
 }
 
-#subruledef imm10
+#subruledef imm10 ; 10-bit immediate used in lui only
 {
 	{imm: i10} => imm
+}
+
+#subruledef imm16 ; 16-bit immediate used in psuedo for lui/adi pair
+{
+	{imm: i16} => imm
 }
 
 #ruledef ; all the ops with immediate fields, opcodes 0 through 0xExxx
@@ -111,7 +121,7 @@ cat > ${RULES} << 'EOF'
 
 ; All remaining opcodes have 0b1111 = 0xF in the upper four bits.
 
-#ruledef ; XOPs. bic and bis are NAND and OR.
+#ruledef ; XOPs are three-register ops. bic and bis are NAND and OR (PDP-11).
 {
 	add {ra: reg}, {rb: reg}, {rc: reg}  => le(0xF @ 0b000  @ rc @ rb @ ra)
 	adc {ra: reg}, {rb: reg}, {rc: reg}  => le(0xF @ 0b001  @ rc @ rb @ ra)
@@ -126,10 +136,10 @@ cat > ${RULES} << 'EOF'
 
 #ruledef ; YOPs are two-register operations.
 {
-	wrs {ra: srg}, {rb: reg}  => le(0xF @ 0b111  @ 0b000 @ rb @ ra) ; write special
-	rds {ra: srg}, {rb: reg}  => le(0xF @ 0b111  @ 0b001 @ rb @ ra) ; read special
-	lds {ra: srg}, {rb: reg}  => le(0xF @ 0b111  @ 0b010 @ rb @ ra) ; load special
-	sts {ra: srg}, {rb: reg}  => le(0xF @ 0b111  @ 0b011 @ rb @ ra) ; store special
+	wrs {ra: wsr}, {rb: reg}  => le(0xF @ 0b111  @ 0b000 @ rb @ ra) ; write special
+	rds {ra: rsr}, {rb: reg}  => le(0xF @ 0b111  @ 0b001 @ rb @ ra) ; read special
+	lds {ra: wsr}, {rb: reg}  => le(0xF @ 0b111  @ 0b010 @ rb @ ra) ; load special
+	sts {ra: rsr}, {rb: reg}  => le(0xF @ 0b111  @ 0b011 @ rb @ ra) ; store special
 	FF0 {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b100 @ rb @ ra) ; unused
 	ior {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b101 @ rb @ ra)
 	iow {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b110 @ rb @ ra)
@@ -165,31 +175,30 @@ cat > ${RULES} << 'EOF'
 	die => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b111)
 }
 
-; TODO: pseudo operations (below in the comment)
+; Multiple instruction and aliases
+
+#ruledef ; pseudos (both multiple instruction generation and actual pseudos)
+{
+	lli {ra: reg}, {imm: imm6} => asm { adi {ra}, r0, {imm} }
+	ldi {ra: reg}, {imm: u16}  => 
+	{
+		upper_imm = (imm>>6)&0b11_1111_1111 ; imm10
+		lower_imm = (imm&0b11_1111)         ; imm6
+		asm { lui {ra}, {upper_imm} } @ asm { adi {ra}, r0, {lower_imm} }
+	}
+	nop => asm { adi r0, r0, 0 }
+}
+
+; Pseudos
+; .align is #align <bit-alignment>
+; .string is #d "string" (or "string\0"). Strings are utf-8
+; label: .string "four" is label: #d "four"
+; and then len = $ - label ; len is 4.
+; .byte is #d8
+; .word is #d16
+; .space is #res
+; .set is #const or =
 
 EOF
 
 customasm -o y4.out ${RULES} $@
-
-cat > /dev/null << 'EOF'
-
-	// Pseudo-ops that are aliases to other instructions
-	{"lli",    0xA000, sigFor(SeReg, SeImm6, SeNone)},  // adi rT, rS, imm&0x3F
-	{"nop",    0xA000, sigFor(SeNone, SeNone, SeNone)}, // adi r0, r0, 0
-
-	// Pseudo-ops. Some can accept 16-bit args. The ones that start
-	// with dots do not result in machine instructions so their opcodes
-	// are set to "die" (illegal instruction trap). They have to be
-	// handled by the parser since we have no way to store 16-bit values
-	// in the symbol table (so no way to pass the value from the parser
-	// to the code generator/emitter).
-	{"ldi",    0xFFFF, sigFor(SeReg, SeVal16, SeNone)},
-	{".align", 0xFFFF, sigFor(SeVal16, SeNone, SeNone)},
-	{".byte",  0xFFFF, sigFor(SeVal16, SeNone, SeNone)},
-	{".word",  0xFFFF, sigFor(SeVal16, SeNone, SeNone)},
-	{".space", 0xFFFF, sigFor(SeVal16, SeNone, SeNone)},
-	{".string",0xFFFF, sigFor(SeString, SeNone, SeNone)},
-	{".set",   0xFFFF, sigFor(SeSym, SeVal16, SeNone)},
-}
-
-EOF
