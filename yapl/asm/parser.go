@@ -60,7 +60,6 @@ type parserContext struct { // bag o' context
 	srcLine int
 	errorCount int
 	dot uint16
-	opcode uint16
 	signature uint16
 	opindex uint16
 	numoperands uint16
@@ -176,24 +175,15 @@ func doBetweenLines(ctx *parserContext, t *Token) bool {
 func doNeedKey(ctx *parserContext, t *Token) bool {
 	switch t.Kind() {
 	case TkSymbol:
-		// Key symbols have two values, a signature and an opcode.
-		// They are in the symbol table twice, once under their own
-		// name and once under a prefixed string that isn't a legal
-		// user symbol.
-		sig, _, err := ctx.symtab.Get(t.Text())
+		sig, index, err := ctx.symtab.Get(t.Text())
 		if err != nil {
 			report(ctx, "key unknown: %s", t.Text())
 			break
 		}
-		op, _, err := ctx.symtab.Get(OpcodePrefix+t.Text())
-		if err != nil { // shouldn't happen
-			report(ctx, "internal error: no opcode for %s", t.Text())
-			break
-		}
-		ctx.opcode = op
+		ctx.instructions = append(ctx.instructions, MachineInstruction{})
+		ctx.instructions[ctx.dot].parts[Key] = index
 		ctx.signature = sig
 		ctx.numoperands = numOperands(ctx.signature)
-		ctx.instructions = append(ctx.instructions, MachineInstruction{})
 		// These must be updated per operand:
 		ctx.opindex = Ra
 		ctx.positive = true
@@ -224,6 +214,7 @@ func doNeedExpression(ctx *parserContext, t *Token) bool {
 			ctx.symtab.Negate(index)
 		}
 		ctx.instructions[ctx.dot].parts[ctx.opindex] = index
+		// These must be updated per operand:
 		ctx.positive = true
 		ctx.opindex++
 		if ctx.opindex > ctx.numoperands {
@@ -244,6 +235,7 @@ func doNeedExpression(ctx *parserContext, t *Token) bool {
 		// flag bit that distinguishes symbol table entries from values.
 		var immed uint16 = uint16(value&0x3FF)
 		ctx.instructions[ctx.dot].parts[ctx.opindex] = IsValue | immed
+		// These must be updated per operand:
 		ctx.positive = true
 		ctx.opindex++
 		if ctx.opindex > ctx.numoperands {

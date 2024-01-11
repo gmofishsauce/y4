@@ -1,0 +1,11 @@
+# From https://user.eng.umd.edu/~blj/risc/RiSC-isa.pdf
+        ldw 1,0,count    # load reg1 with 5 (uses symbolic address)
+        ldw 2,1,2        # load reg2 with -1 (uses numeric address)
+start:  add 1,1,2       # decrement reg1 -- could have been addi 1,1,-1
+        beq 0,1,1       # goto end of program when reg1==0
+        beq 0,0,start   # go back to the beginning of the loop
+done:	hlt             # end of program
+count:	.word 5
+neg1:	.word -1
+startAddr: .word start  # will contain the address of start (2)
+

@@ -23,23 +23,12 @@ along with this program. If not, see http://www.gnu.org/licenses/.
 var GeneratorDebug = false
 
 func Generate(symbols *SymbolTable, instructions *[]MachineInstruction) error {
-	return nil
-}
-
-	/*
 	if GeneratorDebug {
-		dbg("generate(): not implemented")
-	}
-
-	if GeneratorDebug {
-		// dump machine instructions
 		for i := range *instructions {
 			mi := (*instructions)[i]
-			//key := KeyTable[mi.parts[0]].name
-			//dbg("key %5s rA 0x%04X rB 0x%04X rC 0x%04X",
-			//    key, mi.parts[1], mi.parts[2], mi.parts[3])
-			//dbg("key 0x%04X rA 0x%04X rB 0x%04X rC 0x%04X",
-			//    mi.parts[0], mi.parts[1], mi.parts[2], mi.parts[3])
+			dbg("key 0x%04X rA 0x%04X rB 0x%04X rC 0x%04X",
+			    mi.parts[0], mi.parts[1], mi.parts[2], mi.parts[3])
 		}
 	}
-	*/
+	return nil
+}

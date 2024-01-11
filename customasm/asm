@@ -1,0 +1,195 @@
+#!/bin/bash
+#
+# Copyright © 2024 Jeff Berkowitz (pdxjjb@gmail.com)
+# 
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU Affero General Public License as published
+# by the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# Affero General Public License for more details.
+# 
+# You should have received a copy of the GNU Affero General Public
+# License along with this program. If not, see
+# <http://www.gnu.org/licenses/>.
+
+# NAME
+#   asm - y4 assembler
+#
+# SYNOPSIS
+#   asm sourcefile [sourcefile ...] # output written y4.out
+#
+# DESCRIPTION
+#   This script runs customasm (https://github.com/hlorenzi/customasm/tree/main)
+#   with an embedded ruleset that cause it to assemble the y4 instruction set.
+#   If the assembler succeeds, it produces a few lines of console output; if it
+#   fails, it produces hopefully-meaningful errors.
+#   
+#   A "bare" binary, consisting of 2-byte y4 binary opcodes, is written to the
+#   the file y4.out on a successful assembly. There are no command line options.
+#   Plausible options, e.g. a way to set the output filename or write the output
+#   to stdout, may be implemented in the future.
+
+RULES=$(mktemp rules.XXXXXXXX)
+trap 'rm -rf -- "$RULES"' EXIT
+
+# customasm rules go below the cat.
+cat > ${RULES} << 'EOF'
+
+#bankdef user_code
+{
+	#bits 16
+    #addr 0x0000
+	#addr_end 0xFFFF
+	#labelalign 16
+	#outp 0
+}
+
+#bankdef user_data
+{
+    #bits 8
+    #addr 0x0000
+	#addr_end 0xFFFF
+	#outp 16 * (0x10000)
+}
+
+#bank user_code
+
+#subruledef reg
+{
+    r0 => 0o0
+    r1 => 0o1
+    r2 => 0o2
+    r3 => 0o3
+    r4 => 0o4
+    r5 => 0o5
+    r6 => 0o6
+    r7 => 0o7
+}
+
+#subruledef srg ; special registers
+{
+	psw => 0o0 ; read/write
+	lnk => 0o1 ; read only - written by jlr
+	pc  => 0o2 ; read only - written by all flow control instructions
+}
+
+#subruledef imm3 ; only for the currently undefined rB field of jlr
+{
+	{imm: i3} => imm
+}
+
+#subruledef imm6
+{
+	{imm: i6} => imm
+}
+
+#subruledef imm7
+{
+	{imm: i7} => imm
+}
+
+#subruledef imm10
+{
+	{imm: i10} => imm
+}
+
+#ruledef ; all the ops with immediate fields, opcodes 0 through 0xExxx
+{
+	ldw {ra: reg}, {rb: reg}, {imm: imm7}   => le(0b000   @ imm @ rb @ ra)
+	ldb {ra: reg}, {rb: reg}, {imm: imm7}   => le(0b001   @ imm @ rb @ ra)
+	stw {ra: reg}, {rb: reg}, {imm: imm7}   => le(0b010   @ imm @ rb @ ra)
+	stb {ra: reg}, {rb: reg}, {imm: imm7}   => le(0b011   @ imm @ rb @ ra)
+	beq {ra: reg}, {rb: reg}, {imm: imm7}   => le(0b100   @ imm @ rb @ ra)
+	adi {ra: reg}, {rb: reg}, {imm: imm7}   => le(0b101   @ imm @ rb @ ra)
+	lui {ra: reg}, {imm: imm10}             => le(0b110   @ imm @ ra)
+	jlr {ra: reg}, {xx: imm3}, {imm: imm6}  => le(0b111_0 @ imm @ xx @ ra)
+}
+
+; All remaining opcodes have 0b1111 = 0xF in the upper four bits.
+
+#ruledef ; XOPs. bic and bis are NAND and OR.
+{
+	add {ra: reg}, {rb: reg}, {rc: reg}  => le(0xF @ 0b000  @ rc @ rb @ ra)
+	adc {ra: reg}, {rb: reg}, {rc: reg}  => le(0xF @ 0b001  @ rc @ rb @ ra)
+	sub {ra: reg}, {rb: reg}, {rc: reg}  => le(0xF @ 0b010  @ rc @ rb @ ra)
+	sbc {ra: reg}, {rb: reg}, {rc: reg}  => le(0xF @ 0b011  @ rc @ rb @ ra)
+	bic {ra: reg}, {rb: reg}, {rc: reg}  => le(0xF @ 0b100  @ rc @ rb @ ra)
+	bis {ra: reg}, {rb: reg}, {rc: reg}  => le(0xF @ 0b101  @ rc @ rb @ ra)
+	xor {ra: reg}, {rb: reg}, {rc: reg}  => le(0xF @ 0b110  @ rc @ rb @ ra)
+}
+
+; All remaining opcodes have 0b1111_111 in the upper seven bits.
+
+#ruledef ; YOPs are two-register operations.
+{
+	wrs {ra: srg}, {rb: reg}  => le(0xF @ 0b111  @ 0b000 @ rb @ ra) ; write special
+	rds {ra: srg}, {rb: reg}  => le(0xF @ 0b111  @ 0b001 @ rb @ ra) ; read special
+	lds {ra: srg}, {rb: reg}  => le(0xF @ 0b111  @ 0b010 @ rb @ ra) ; load special
+	sts {ra: srg}, {rb: reg}  => le(0xF @ 0b111  @ 0b011 @ rb @ ra) ; store special
+	FF0 {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b100 @ rb @ ra) ; unused
+	ior {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b101 @ rb @ ra)
+	iow {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b110 @ rb @ ra)
+}
+
+; All remaining instructions have 1's in the top 10 bits.
+
+#ruledef ; ZOPs are one-register operations.
+{
+	not {ra: reg} => le(0xF @ 0b111 @ 0b111 @0b000 @ ra)
+	neg {ra: reg} => le(0xF @ 0b111 @ 0b111 @0b001 @ ra)
+	swb {ra: reg} => le(0xF @ 0b111 @ 0b111 @0b010 @ ra)
+	sxt {ra: reg} => le(0xF @ 0b111 @ 0b111 @0b011 @ ra)
+	lsr {ra: reg} => le(0xF @ 0b111 @ 0b111 @0b100 @ ra)
+	lsl {ra: reg} => le(0xF @ 0b111 @ 0b111 @0b101 @ ra)
+	asr {ra: reg} => le(0xF @ 0b111 @ 0b111 @0b110 @ ra)
+}
+
+; The remaining instructions have 1's in the top 13 bits and no operands.
+; SYS and SRT might be replaced by encodings in the rB field of JLR.
+; RTL (return link) is a jump to the link special register. DIE generates
+; an illegal instruction fault.
+
+#ruledef ; VOPs are zero-register operations.
+{
+	sys => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b000)
+	srt => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b001)
+	FFA => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b010)
+	FFB => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b011)
+	rtl => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b100)
+	hlt => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b101)
+	brk => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b110)
+	die => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b111)
+}
+
+; TODO: pseudo operations (below in the comment)
+
+EOF
+
+customasm -o y4.out ${RULES} $@
+
+cat > /dev/null << 'EOF'
+
+	// Pseudo-ops that are aliases to other instructions
+	{"lli",    0xA000, sigFor(SeReg, SeImm6, SeNone)},  // adi rT, rS, imm&0x3F
+	{"nop",    0xA000, sigFor(SeNone, SeNone, SeNone)}, // adi r0, r0, 0
+
+	// Pseudo-ops. Some can accept 16-bit args. The ones that start
+	// with dots do not result in machine instructions so their opcodes
+	// are set to "die" (illegal instruction trap). They have to be
+	// handled by the parser since we have no way to store 16-bit values
+	// in the symbol table (so no way to pass the value from the parser
+	// to the code generator/emitter).
+	{"ldi",    0xFFFF, sigFor(SeReg, SeVal16, SeNone)},
+	{".align", 0xFFFF, sigFor(SeVal16, SeNone, SeNone)},
+	{".byte",  0xFFFF, sigFor(SeVal16, SeNone, SeNone)},
+	{".word",  0xFFFF, sigFor(SeVal16, SeNone, SeNone)},
+	{".space", 0xFFFF, sigFor(SeVal16, SeNone, SeNone)},
+	{".string",0xFFFF, sigFor(SeString, SeNone, SeNone)},
+	{".set",   0xFFFF, sigFor(SeSym, SeVal16, SeNone)},
+}
+
+EOF

@@ -52,8 +52,6 @@ type SymbolTable struct {
 	entries []symbolEntry
 }
 
-const OpcodePrefix string = "op$" // see below
-
 // Initialize the symtab by creating all the reserved entries. The first
 // 8 entries in the symbol table are the registers r0..r7. This creates an
 // identity mapping so that e.g. SymbolTable.indexes["r5"] == 5. Then add
@@ -70,12 +68,12 @@ func MakeSymbolTable() *SymbolTable {
 		symTab.internalCreateSymbol("r" + string(rune('0'+i)), symDefined, uint16(i))
 	}
 	for _, keyEntry := range KeyTable {
+		// FIXME if I put the KeyTable index in the symbol table as the value
+		// instead of the signature, I could get the string opcode, the binary
+		// opcode bits, and the signature from the KeyTable. And anything else
+		// I might add there in the future.
 		symTab.internalCreateSymbol(keyEntry.name, symDefined, keyEntry.signature)
 	}
-	for _, keyEntry := range KeyTable { // hack for the second value, opcode
-		symTab.internalCreateSymbol(OpcodePrefix + keyEntry.name, symDefined, keyEntry.opcode)
-	}
-
 	return symTab
 }
 
