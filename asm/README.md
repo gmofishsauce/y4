@@ -9,7 +9,7 @@ contained in the script `asm` in this directory.
 
 It's necessary to install customasm.
 
-On Windows you can (download a binary)[https://github.com/hlorenzi/customasm/releases].
+On Windows you can [download a binary](https://github.com/hlorenzi/customasm/releases).
 For Mac, you need to install the Rust compiler and `cargo`. Then `cargo install customasm`
 which will compile the source code and install the binary in `~/.cargo/bin`.
 
@@ -21,8 +21,7 @@ verify that it's present.
 ## Usage
 
 The script `asm` in this directory is the y4 assembler. It embeds the rules and runs
-customasm. You should never need to run customasm directly, nor should you need to
-#include any "rules" as described in the documentation for customasm--the script takes
+customasm. You should never need to run customasm directly, nor should you need to \#include any "rules" as described in the documentation for customasm--the script takes
 care of that.
 
 ## Output

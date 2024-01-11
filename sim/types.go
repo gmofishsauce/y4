@@ -39,7 +39,6 @@ type Bits struct {
 const MaxWidth uint16 = 16
 const AllBits uint16 = 0xFFFF
 
-// Make a Bits from its four components, guarding against overflow
 func MakeBits(w uint16, u uint16, z uint16, v uint16) Bits {
 	return Bits{width: w, highz: z, undef: u, value: v}
 }
@@ -136,7 +135,6 @@ const (
 	KindEval = byte('E')
 	KindReset = byte('R')
 	KindEdge = byte('^')
-	KindVal = byte('V')
 )
 
 // ErrorList collection class implements error
