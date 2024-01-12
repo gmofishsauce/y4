@@ -21,12 +21,17 @@ verify that it's present.
 ## Usage
 
 The script `asm` in this directory is the y4 assembler. It embeds the rules and runs
-customasm. You should never need to run customasm directly, nor should you need to \#include any "rules" as described in the documentation for customasm--the script takes
-care of that.
+customasm. You should never need to run customasm directly,
+nor should you need to \#include any "rules" as described in
+the documentation for customasm--the script takes care of that.
+
+## Source
+
+Source files are named *.y4a (YARC-4 assembler).
 
 ## Output
 
-The binary result file is written to y4.bin.
+The binary result file is written to y4.out.
 
 ## TODO
 

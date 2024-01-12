@@ -1,4 +1,3 @@
-ldw r0, r0, 0
 ldb r1, r1, 1
 stw r3, r3, 0x8
 stb r4, r4, 16
@@ -11,3 +10,8 @@ rds lnk, r2
 lli r5, 42
 #align 64
 ldi r0, 0xC3C3
+; Jump forward 128k in file:
+#bank user_data
+hello: #d "hello"
+bye: #d "bye"
+#d16 $ - hello
