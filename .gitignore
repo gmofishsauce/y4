@@ -21,9 +21,12 @@
 # Go workspace file
 go.work
 
-# binary log file
+# binary files
 log.bin
+y4.out
 
 # executable
 sim/sim
 asm/asm
+dis/dis
+
