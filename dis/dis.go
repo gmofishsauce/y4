@@ -26,14 +26,7 @@ import (
 	"os"
 )
 
-var dflag = flag.Bool("d", false, "enable debug")
-
-// These values index the parts[] array. They are also multiplied by 4
-// to product the shift into the Signature of the instruction, below.
-const Key uint16 = 0
-const Ra uint16 = 1
-const Rb uint16 = 2
-const Rc uint16 = 3
+var qflag = flag.Bool("q", false, "quiet offsets and opcodes")
 
 // Table of mnemonics and their signatures
 
@@ -44,24 +37,15 @@ type KeyEntry struct {
 	signature uint16 // see below
 }
 
-const (
-	X uint16 = 0 // this argument doesn't exist for this opcode
-	I uint16 = 1 // argument is a 7-bit immediate in bits 12:6
-	J uint16 = 2 // argument is a 10-bit immediate in bits 12:3
-	R uint16 = 3 // argument is a general register in 8:6, 5:3, or 2:0
-	S uint16 = 4 // argument is a special register always in 2:0
-)
-
-// The specifies run from least signficant bits to most
-//                 rA   | rB, imm, or etc.
-//                 ~~~    ~~~~~~~~~~~~~~~~
-const RRI uint16 = R    | R<<4 | I<<8 // load, store, adi, jlr, beq
-const RJX uint16 = R    | J<<4 | X    // lui
-const RRR uint16 = R    | R<<4 | R<<8 // XOPs
-const SRX uint16 = S    | R<<4 | X    // YOPs with special registers
-const RRX uint16 = R    | R<<4 | X    // YOPs with general registers
-const RXX uint16 = R    | X    | X    // ZOPs with one general register
-const XXX uint16 = X    | X    | X    // VOPs with no arguments
+// Instruction argument shapes
+const RRI uint16 = 1 // register, register, immediate7
+const RJX uint16 = 2 // register, immediate10
+const RRR uint16 = 3 // register, register, register
+const SRX uint16 = 4 // special, register
+const RRX uint16 = 5 // register, register
+const RXX uint16 = 6 // register
+const XXX uint16 = 7 // no arguments
+const RHI uint16 = 8 // register, imm3, imm7 (jlr only)
 
 // Names of the registers, indexed by field content
 var RegNames []string = []string {
@@ -86,7 +70,7 @@ var KeyTable []KeyEntry = []KeyEntry {
 	{"beq", 3,  0x8000, RRI},
 	{"adi", 3,  0xA000, RRI},
 	{"lui", 3,  0xC000, RJX},
-	{"jlr", 4,  0xE000, RRI},
+	{"jlr", 4,  0xE000, RHI}, // reg, 3-bit imm, 7-bit positive imm
 
 	// 3-operand XOPs
 	{"add", 7,  0xF000, RRR},
@@ -124,12 +108,6 @@ var KeyTable []KeyEntry = []KeyEntry {
 	{"brk", 16, 0xFFFD, XXX},
 	{"hlt", 16, 0xFFFE, XXX},
 	{"die", 16, 0xFFFF, XXX},
-
-	// aliases for other instructions
-	// the disassembler has to special case these "by hand"
-	// {"lli",     0xA000, sigFor(SeReg, SeImm6, SeNone)},  // adi rT, rS, imm&0x3F
-	// {"ldi",     0xFFFF, sigFor(SeReg, SeVal16, SeNone)}, // lui ; adi
-	// {"nop",     0xA000, sigFor(SeNone, SeNone, SeNone)}, // adi r0, r0, 0
 }
 
 // Y4 disassembler. A general theme with this tool is that it has
@@ -160,43 +138,27 @@ func main() {
 // have no header. There can be up to 128kb of code, but programs are
 // typically small because there's no compiler (yet). The opcode 0x0000
 // is "load word from memory to register 0". This is meaningless because,
-// like many RISC machines, r0 is a black hole that reads as 0. So the
-// disassembler stops when it sees an aligned 0 word. The disassembler
-// must wait before flushing out each instruction's disassembled form
-// because some two-instruction pairs are disassembled as a single line
-// with a single mnemonic.
+// like many RISC machines, r0 is a black hole. So the disassembler stops
+// when it sees an aligned 0 word.
 
 const MaxCodeSegLen = 64*1024 // uints
 
 func disassemble(f *os.File) error {
 	var b []byte = make([]byte, 2, 2) 
-	var thisInst uint16
-	var prevInst uint16
-	var thisLine string
-	var prevLine string
+	var inst uint16
 	var at int
 	var err error
 
 	for n, err := f.Read(b); n == 2 && err == nil && at < MaxCodeSegLen; n, err = f.Read(b) {
-		thisInst = binary.LittleEndian.Uint16(b[:])
-		if thisInst == 0 {
+		if inst = binary.LittleEndian.Uint16(b[:]); inst == 0 {
 			break
 		}
-		if isCombinable(prevInst, thisInst) {
-			prevLine = ""
-			thisLine = decodeCombined(prevInst, thisInst)
+		if (*qflag) {
+			fmt.Println(decode(inst))
 		} else {
-			thisLine = decode(thisInst)
-		}
-		if len(prevLine) != 0 {
-			fmt.Printf("0x%02X %s\n", prevInst, prevLine)
+			fmt.Printf("%5d: 0x%04X: %s\n", at, inst, decode(inst))
 		}
 		at++
-		prevInst = thisInst
-		prevLine = thisLine
-	}
-	if len(prevLine) != 0 {
-		fmt.Printf("0x%02X %s\n", prevInst, prevLine)
 	}
 	if err != nil && !errors.Is(err, io.EOF) {
 		return err
@@ -204,20 +166,10 @@ func disassemble(f *os.File) error {
 	return nil
 }
 
-func isCombinable(prevInst uint16, thisInst uint16) bool {
-	TODO()
-	return false
-}
-
-func decodeCombined(prevInst uint16, thisInst uint16) string {
-	TODO()
-	return "TODO: decode combined instruction patterns"
-}
-
 func decode(op uint16) string {
 	// So the key table has column "nbits". It specifies how many
 	// upper bits of matching opcode are required to recognize the
-	// instruction. If the nbits column holds 3, then (op&7)<<13
+	// instruction. If the nbits column holds 3, (op&0b111)<<13
 	// must match the entry's opcode masked with the same mask. If
 	// it does then we can get the signature and decode the rest of
 	// the instruction. We could build a hashmap for this, but the
@@ -233,23 +185,28 @@ func decode(op uint16) string {
 		}
 	}
 	if found.nbits == 0 {
+		// All the opcodes are taken, so this is probably a bug,
+		// not e.g. an illegal instruction, etc.
 		return "internal error: opcode not found"
 	}
 
 	var args string
 	switch found.signature {
 	case RRI:
-		args = fmt.Sprintf("%s %s 0x%02X",
+		args = fmt.Sprintf("%s, %s, 0x%02X",
 			RegNames[bits(op,2,0)], RegNames[bits(op,5,3)], bits(op,12,6))
+	case RHI:
+		args = fmt.Sprintf("%s, 0x%1X, 0x%02X",
+			RegNames[bits(op,2,0)], bits(op,5,3), bits(op,12,6))
 	case RJX:
-		args = fmt.Sprintf("%s 0x%03X", RegNames[bits(op,2,0)], bits(op,12,3))
+		args = fmt.Sprintf("%s, 0x%03X", RegNames[bits(op,2,0)], bits(op,12,3))
 	case RRR:
-		args = fmt.Sprintf("%s %s %s",
+		args = fmt.Sprintf("%s, %s, %s",
 			RegNames[bits(op,2,0)], RegNames[bits(op,5,3)], RegNames[bits(op,8,6)])
 	case SRX:
-		args = fmt.Sprintf("%s %s", SprNames[bits(op,2,0)], RegNames[bits(op,5,3)])
+		args = fmt.Sprintf("%s, %s", SprNames[bits(op,2,0)], RegNames[bits(op,5,3)])
 	case RRX:
-		args = fmt.Sprintf("%s %s", RegNames[bits(op,2,0)], RegNames[bits(op,5,3)])
+		args = fmt.Sprintf("%s, %s", RegNames[bits(op,2,0)], RegNames[bits(op,5,3)])
 	case RXX:
 		args = fmt.Sprintf("%s", RegNames[bits(op,2,0)])
 	case XXX:
