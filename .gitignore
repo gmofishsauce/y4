@@ -27,6 +27,5 @@ y4.out
 
 # executable
 sim/sim
-asm/asm
 dis/dis
 
