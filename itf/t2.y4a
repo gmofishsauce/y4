@@ -1,0 +1,46 @@
+; Just some randomish code
+xor r7, r7, r7 ; clear r7 (initialize sp)
+
+lui r1, 0xFFFF>>6 ; load -1 to r1
+adi r1, r0, 0xFFFF&0x3F
+
+loop:
+adi r7, r0, -2 ; push r1
+stw r1, r7, 0
+beq r7, r0, cont
+beq r7, r0, loop
+beq r0, r0, loop
+
+cont:
+	add r0, r0, r0
+	adc r1, r1, r1
+	sub r2, r2, r2
+	sbb r3, r3, r3
+	bic r4, r4, r4
+	bis r5, r5, r5
+	xor r6, r6, r7
+
+	wrs psw, r0
+	rds psw, r0
+	lds psw, r0
+	sts psw, r0
+	ior r0, r0
+	iow r0, r0
+
+	not r0
+	neg r1
+	swb r2
+	sxt r3
+	lsr r4
+	lsl r5
+	asr r6
+
+	sys
+	srt
+	v02
+	v03
+	rtl
+	hlt
+	brk
+	die
+

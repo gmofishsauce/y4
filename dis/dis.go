@@ -86,9 +86,9 @@ var KeyTable []KeyEntry = []KeyEntry {
 	{"rds", 10, 0xFE40, SRX},
 	{"lds", 10, 0xFE80, SRX},
 	{"sts", 10, 0xFEC0, SRX},
-	{"ior", 10, 0xFF00, RRX},
-	{"iow", 10, 0xFF40, RRX},
-	{"FF8", 10, 0xFF80, XXX},
+	{"y04", 10, 0xFF00, XXX},
+	{"ior", 10, 0xFF40, RRX},
+	{"iow", 10, 0xFF80, RRX},
 
 	// 1 operand ZOPs
 	{"not", 13, 0xFFC0, RXX},
@@ -102,11 +102,11 @@ var KeyTable []KeyEntry = []KeyEntry {
 	// 0 operand VOPs
 	{"sys", 16, 0xFFF8, XXX},
 	{"srt", 16, 0xFFF9, XXX},
-	{"FFA", 16, 0xFFFA, XXX},
-	{"FFB", 16, 0xFFFB, XXX},
+	{"v02", 16, 0xFFFA, XXX},
+	{"v03", 16, 0xFFFB, XXX},
 	{"rtl", 16, 0xFFFC, XXX},
-	{"brk", 16, 0xFFFD, XXX},
-	{"hlt", 16, 0xFFFE, XXX},
+	{"hlt", 16, 0xFFFD, XXX},
+	{"brk", 16, 0xFFFE, XXX},
 	{"die", 16, 0xFFFF, XXX},
 }
 
