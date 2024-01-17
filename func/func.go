@@ -18,12 +18,8 @@ License along with this program. If not, see
 package main
 
 import (
-	"bytes"
-	"encoding/binary"
-	//"errors"
 	"fmt"
 	"flag"
-	"io"
 	"os"
 )
 
@@ -32,6 +28,11 @@ var dflag = flag.Bool("d", false, "enable debugging")
 // Functional simulator for y4 instruction set
 
 const K = 1024
+const limit = 10 // instruction execution limit
+const lr = 0 // link register is spr[0]
+const user = 0
+const kern = 1
+
 type word uint16
 
 type y4mem struct {
@@ -40,19 +41,32 @@ type y4mem struct {
 }
 
 type y4machine struct {
-	user y4mem // user space
-	kern y4mem // kernel space
-	reg []word // registers (r0 must be zero)
-	spr []word // special registers
-	hc byte // experimental hidden carry bit
+	mem []y4mem // [0] is user space, [1] is kernel
+	reg []word  // registers (r0 must be zero)
+	spr []word  // special registers
+	pc uint16
+	mode byte   // current mode, user = 0, kernel = 1
+	hc byte     // experimental hidden carry bit
+	running bool    // run/stop flag
 }
 
 var y4 y4machine = y4machine {
-	user: y4mem{imem: make([]word, 64*K, 64*K), dmem: make([]byte, 64*K, 64*K)},
-	kern: y4mem{imem: make([]word, 64*K, 64*K), dmem: make([]byte, 64*K, 64*K)},
+	mem: []y4mem{
+		{imem: make([]word, 64*K, 64*K), dmem: make([]byte, 64*K, 64*K)}, // user
+		{imem: make([]word, 64*K, 64*K), dmem: make([]byte, 64*K, 64*K)}, // kernel
+	},
 	reg: make([]word, 8, 8),
 	spr: make([]word, 8, 8),
+	pc: 0,
+	mode: 0,
 	hc: 0,
+	running: false,
+}
+
+func (y4 *y4machine) reset() {
+	y4.pc = 0
+	y4.mode = user
+	y4.running = true
 }
 
 func main() {
@@ -74,98 +88,52 @@ func main() {
 	if err = y4.run(); err != nil {
 		fatal(fmt.Sprintf("running %s: %s", binPath, err.Error()))
 	}
-	pr(fmt.Sprintf("%s: exit 0", binPath))
 }
 
-// For now, we accept the output of customasm directly. The bin file has
-// no file header. There are between 1 and 4 sections in this order: user
-// code, user data (if any), kernel code (if any) and kernel data (if any).
-// Each section is full length if it's followed by other sections, else
-// it's truncated to the length required to hold whatever is there. The
-// full section lengths are 128kb for the code sections and 64kb for the
-// data sections.
-//
-// So if the file length is ... then we need to load ...
-//
-//                       <= 128k                user code only
-//                       <= 192k                user code and data
-//                       <= 320k                plus kernel code
-//                       <= 384k                plus kernel data
-//
-// If it's bigger than that, we report an error because we're confused.
-// Note that there might not be any user code or data, for example, but
-// by convention the file still has full-length sections.
-//
-// This is all temporary and will be replaced by something more reasonable.
-func (y4 *y4machine) load(binPath string) (int, error) {
-	f, err := os.Open(binPath)
-	if err != nil {
-		return 0, err
-	}
-	defer f.Close()
-
-	// I looked at using encoding.binary.Read() directly on the binfile
-	// but because it doesn't return a byte count, checking for the
-	// partial read at the end of the file based on error types is messy. 
-
-	var buf []byte = make([]byte, 64*K, 64*K)
-	var nLoaded int
-	var n int
-
-	if n, err = readChunk(f, buf, 0, nil, y4.user.imem[0:64*K/2]); err != nil {
-		return 0, err
-	}
-	nLoaded += n
-	if n < len(buf) {
-		return nLoaded, nil
-	}
-
-	if n, err = readChunk(f, buf, 0, nil, y4.user.imem[64*K/2:64*K]); err != nil {
-		return 0, err
-	}
-	nLoaded += n
-	if n < len(buf) {
-		return nLoaded, nil
-	}
-
-	if n, err = readChunk(f, buf, 0, y4.user.dmem[0:64*K], nil); err != nil {
-		return 0, err
-	}
-	nLoaded += n
-	return nLoaded, nil
-}
-
-// Read a chunk of f at offset pos and decode it into either b or w. One of
-// b or w must be nil on each call and the other is the decoding target (so
-// just a nil check is required instead of RTTI).
-//
-// This function either returns a positive count or an error, but not both.
-// If the count is short, the read hit EOF and was successfully decoded into
-// the buffer. No error is returned.
-func readChunk(f *os.File, buf []byte, pos int64, b []byte, w []word) (int, error) {
-    n, err := f.ReadAt(buf, pos)
-	// "ReadAt always returns a non-nil error when n < len(b)." (Docs)
-    if n == 0 || (err != nil && err != io.EOF) {
-        return 0, err
-    }
-
-	// Now if n < len(buf), err is io.EOF but we don't care.
-    r := bytes.NewReader(buf)
-	if b != nil {
-		err = binary.Read(r, binary.LittleEndian, b[0:n])
-	} else {
-		err = binary.Read(r, binary.LittleEndian, w[0:n/2])
-	}
-	if err != nil {
-		// The decoder shouldn't fail. Say we got no data.
-		return 0, err
-	}
-	return n, nil
-}
+type runfunc func(inst word) bool
 
 func (y4 *y4machine) run() error {
-	TODO()
+	y4.reset()
+	mem := &y4.mem[y4.mode]
+	var instCount int
+	
+	for instCount = 0; y4.running && instCount < limit; instCount++ {
+		inst := mem.imem[y4.pc]
+		dbg(fmt.Sprintf("pc = 0x%04X inst = 0x%04X", y4.pc, inst))
+		y4.pc++
+		runFunc := decode(inst)
+		y4.running = runFunc(inst)
+	}
+
+	pr(fmt.Sprintf("Stopped after %d instruction pc = 0x%04X", instCount, y4.pc))
 	return nil
+}
+
+func (w word) bits(hi int, lo int) uint16 {
+	mask :=  uint16(1<<(hi-lo+1)-1)
+	//dbg(fmt.Sprintf("bits w = 0x%04X hi %d lo %d mask 0x%04X", w, hi, lo, mask))
+	return uint16(w>>lo) & mask
+}
+
+func decode(inst word) runfunc {
+	TODO()
+	op := inst.bits(15, 13)
+	//dbg(fmt.Sprintf("  op %d", op))
+	if op < 4 {
+		return ldst
+	}
+	return func(inst word) bool {
+		dbg("runfunc default")
+		return true
+	}
+}
+
+// runfuncs
+
+func ldst(inst word) bool {
+	TODO()
+	dbg("runfunc ldst")
+	return true
 }
 
 func usage() {
