@@ -56,8 +56,8 @@ type y4machine struct {
 	// This is the longer term "fused instructions" bit
 	hc byte      // experimental hidden carry bit
 
-	// Non-architectural state set anywhere, even fetch
-	ex word		 // contents TBD
+	// Non-architectural state set anywhere
+	ex word		 // 0 = no exception, nonzero values TBD
 
 	// Non-architectural per-cycle state set at decode
 	ir word      // instruction register
@@ -68,7 +68,8 @@ type y4machine struct {
 
 	// Non-architural state set at execute or memory
 	alu word   // temporary alu result register
-	mr word    // memory data source or dest register
+	sd word    // memory source data register
+	wb word    // register writeback (instruction result)
 }
 
 var y4 y4machine = y4machine {
@@ -142,9 +143,10 @@ func (w word) bits(hi int, lo int) uint16 {
 
 // Fetch next instruction into ir. Future: MMU page faults.
 func (y4 *y4machine) fetch() {
-	y4.ex = 0
-	y4.mr = 0
+	y4.ex = 0	// I don't know if we should clear these ... it hides bugs.
 	y4.alu = 0
+	y4.sd = 0
+	y4.wb = 0
 
 	mem := &y4.mem[y4.mode]
 	y4.ir = mem.imem[y4.pc]
@@ -184,40 +186,45 @@ func (y4 *y4machine) execute() {
 }
 
 // For instructions that reference memory, do the memory operation.
-// The computed address is in the alu (alu result) register. For
-// word loads and stores, the value has already been scaled; how
-// this would work in hardare is TBD.
+// The computed address is in the alu (alu result) register and the
+// execute phase must also have loaded the store data register.
 func (y4 *y4machine) memory() {
 	if y4.ex != 0 { // exception pending
 		return
 	}
+
 	mem := &y4.mem[y4.mode]
 	if y4.op < 4 { // general register load or store
 		switch y4.op { // no default
 		case 0:  // ldw
-			y4.mr = word(mem.dmem[y4.alu])
-			y4.mr |= word(mem.dmem[y4.alu+1]) << 8
+			y4.wb = word(mem.dmem[y4.alu])
+			y4.wb |= word(mem.dmem[y4.alu+1]) << 8
 		case 1:  // ldb
-			y4.mr = word(mem.dmem[y4.alu]) & 0x00FF
+			y4.wb = word(mem.dmem[y4.alu]) & 0x00FF
 		case 2:  // stw
-			mem.dmem[y4.alu] = byte(y4.mr & 0x00FF)
-			mem.dmem[y4.alu+1] = byte(y4.mr >> 8)
+			mem.dmem[y4.alu] = byte(y4.sd & 0x00FF)
+			mem.dmem[y4.alu+1] = byte(y4.sd >> 8)
 		case 3:  // stb
-			mem.dmem[y4.alu] = byte(y4.mr & 0x00FF)
+			mem.dmem[y4.alu] = byte(y4.sd & 0x00FF)
 		}
 	} else if y4.isy { // special load or store, io
 		switch y4.yop { // no default
 		case 2: // lds (load special)
-			y4.mr = word(mem.dmem[y4.alu])
-			y4.mr |= word(mem.dmem[y4.alu+1]) << 8
+			y4.wb = word(mem.dmem[y4.alu])
+			y4.wb |= word(mem.dmem[y4.alu+1]) << 8
 		case 3: // sts (store special)
-			mem.dmem[y4.alu] = byte(y4.mr & 0x00FF)
-			mem.dmem[y4.alu+1] = byte(y4.mr >> 8)
+			mem.dmem[y4.alu] = byte(y4.sd & 0x00FF)
+			mem.dmem[y4.alu+1] = byte(y4.sd >> 8)
 		case 5: // ior 
-			y4.mr = y4.io[y4.alu&(iosize-1)]
+			y4.wb = y4.io[y4.alu&(iosize-1)]
 		case 6: // iow
-			y4.io[y4.alu] = y4.mr
+			y4.io[y4.alu] = y4.sd
 		}
+	} else {
+		// the remaining instructions may or may not
+		// have a result. But if they do, it comes 
+		// from the alu.
+		y4.wb = y4.alu
 	}
 }
 
@@ -226,20 +233,19 @@ func (y4 *y4machine) writeback() {
 	if y4.ex != 0 { // exception pending
 		return
 	}
-	if y4.op < 4 { // general register load or store
-		switch y4.op { // no default
-		case 0, 1:  // ldw, ldb
-			y4.reg[y4.ra] = y4.mr
-		}
-	} else if y4.isy { // special load or store, io
-		switch y4.yop { // no default
-		case 2: // lds (load special)
-			// This is the only case where the target
-			// is not in the register A (rA) field.
-			y4.reg[y4.rb] = y4.mr
-		case 5: // ior 
-			y4.reg[y4.ra] = y4.mr
-		}
+
+	if y4.op == 0 ||   // ldw
+		y4.op == 1 ||  // ldb
+		y4.op == 5 ||  // adi
+		y4.op == 6 ||  // lui
+		y4.isx ||      // 3-operand alu
+		(y4.isy && y4.yop == 5) ||  // ior
+		y4.isz {       // single operand alu
+
+		y4.reg[y4.ra] = y4.wb
+	} else if y4.isy && (y4.yop == 1 || y4.yop == 2) {
+		// lds, rds
+		y4.spr[y4.rb] = y4.wb
 	}
 }
 
