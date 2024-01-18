@@ -66,10 +66,32 @@ type y4machine struct {
 	isx, isy, isz, isv bool
 	ra, rb, rc uint16
 
-	// Non-architural state set at execute or memory
+	// Non-architural state set at execute or memory.
+	//
+	// The alu result is computed at execution time. If there
+	// is a load or store, it is the address in all cases. If
+	// it's a 16-bit write, the LS bits go at the byte addressed
+	// by the alu value and the MS bits at byte (alu+1) in memory.
+	// This is called "little endian".
+	//
+	// If there's a store, the source data is set at execution
+	// time and stored in sd. For a load, the data is placed in
+	// the writeback register (wb) at memory time.
+	//
+	// The instruction result if any if computed at execute time
+	// or, if there's a load, at memory time, and placed in the wb
+	// register. The wb register is written to either a general or
+	// special register at writeback time as required by the opcode.
 	alu word   // temporary alu result register
 	sd word    // memory source data register
 	wb word    // register writeback (instruction result)
+
+	// Assists for the code that may not correspond directly
+	// to anything you'd do in hardware (I think). These are
+	// set at execute or memory time and used at writeback.
+	hasStandardWriteback bool // wb => reg[rA] at writeback
+	hasSpecialWriteback bool  // wb => spr[rB] at writeback
+	isbase bool				  // base op (not xopy, yop, etc.)
 }
 
 var y4 y4machine = y4machine {
@@ -150,6 +172,9 @@ func (y4 *y4machine) fetch() {
 
 	mem := &y4.mem[y4.mode]
 	y4.ir = mem.imem[y4.pc]
+
+	// Control flow instructions will overwrite this at the writeback stage.
+	// This implementation is completely sequential so it's fine.
 	y4.pc++
 }
 
@@ -163,14 +188,16 @@ func (y4 *y4machine) decode() {
 	y4.i7 = y4.ir.bits(12,6)	// 7-bit immediate, when present
 	y4.i10 = y4.ir.bits(12,3)	// 10-bit immediate, when present
 
-	y4.isx = y4.ir.bits(15,12) == 0x000F
 	y4.xop = y4.ir.bits(11,9)
-	y4.isy = y4.ir.bits(15,9)  == 0x007F
 	y4.yop = y4.ir.bits(8,6)
-	y4.isz = y4.ir.bits(15,6)  == 0x03FF
 	y4.zop = y4.ir.bits(5,3)
-	y4.isv = y4.ir.bits(15,3)  == 0x1FFF
 	y4.vop = y4.ir.bits(2,0)
+
+	y4.isv = y4.ir.bits(15,3) == 0x1FFF
+	y4.isz = !y4.isv && y4.ir.bits(15,6) == 0x03FF
+	y4.isy = !y4.isv && !y4.isz && y4.ir.bits(15,9) == 0x007F
+	y4.isx = !y4.isv && !y4.isz && !y4.isy && y4.ir.bits(15,12) == 0x000F
+	y4.isbase = !y4.isv && !y4.isz && !y4.isy && !y4.isv
 
 	y4.ra = y4.vop
 	y4.rb = y4.zop
@@ -188,12 +215,20 @@ func (y4 *y4machine) execute() {
 // For instructions that reference memory, do the memory operation.
 // The computed address is in the alu (alu result) register and the
 // execute phase must also have loaded the store data register.
+//
+// Note that this modifies memory and it's not in the writeback phase.
+// Fine for this sequential implementation, but would seem to be an
+// error for pipelining. But I think it isn't: if it succeeds, then
+// the instruction will, because no exceptions are thrown at writeback
+// time. If it fails, the memory write fails, and the store instruction
+// didn't do anything else because this is RISC. So we can just handle
+// the exception at writeback time like every other exception.
 func (y4 *y4machine) memory() {
 	if y4.ex != 0 { // exception pending
 		return
 	}
 
-	mem := &y4.mem[y4.mode]
+	mem := &y4.mem[y4.mode] // user or kernel
 	if y4.op < 4 { // general register load or store
 		switch y4.op { // no default
 		case 0:  // ldw
@@ -208,6 +243,7 @@ func (y4 *y4machine) memory() {
 			mem.dmem[y4.alu] = byte(y4.sd & 0x00FF)
 		}
 	} else if y4.isy { // special load or store, io
+		// FIXME the yop's will be renumbered XXX
 		switch y4.yop { // no default
 		case 2: // lds (load special)
 			y4.wb = word(mem.dmem[y4.alu])
@@ -223,17 +259,22 @@ func (y4 *y4machine) memory() {
 	} else {
 		// the remaining instructions may or may not
 		// have a result. But if they do, it comes 
-		// from the alu.
+		// from the alu. So put the alu output in the
+		// writeback register; it will be used, or not.
 		y4.wb = y4.alu
 	}
 }
 
 // Write the result (including possible memory result) to a register.
+// Stores and io writes are handled at memory time.
 func (y4 *y4machine) writeback() {
 	if y4.ex != 0 { // exception pending
 		return
 	}
 
+	// This code will be replaced by hasStandardWriteback and
+	// hasSpecialWriteback after the execution code is complete. 
+	// It's retained for now and will also be used for testing.
 	if y4.op == 0 ||   // ldw
 		y4.op == 1 ||  // ldb
 		y4.op == 5 ||  // adi

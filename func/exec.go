@@ -17,8 +17,9 @@ License along with this program. If not, see
 */
 package main
 
-//import (
-//)
+import (
+	"fmt"
+)
 
 // The opcodes basically spread out to the right, using more and
 // more leading 1-bits. The bits come in groups of 3, with the
@@ -26,11 +27,90 @@ package main
 // the next three (XOP) bits. After that, 1111 111... requires
 // decoding the next three bits, then 1111 111 111..., etc.
 //
-// This is implemented by several 8-element function tables where
-// the last ("111") element in the table defer to the next table,
-// etc. This is the equivalent of chaining 3-to-8 decoders in
-// hardware where the "111" (7) output enables the next, then the
-// next, etc. This is not really how you'd do it ("ripple" decode,
-// too slow) but it's nice and simple here.
+// The decoder already figured this out and set isx, xop, isy,
+// yop, and so on. We just need to switch on them (or not, if
+// a bunch of ops are very similar, like the xops).
+
+type xf func()
+
+// We need a function with a parameter for reporting decode
+// failures. Then we need wrappers of type xf for tables.
+func (y4 *y4machine) decodeFailure(msg string) {
+	pr(fmt.Sprintf("opcode 0x%04X\n", y4.op))
+	panic("executeSequential(): decode failure: " + msg)
+}
+
+
+func (y4 *y4machine) baseFail() {
+	y4.decodeFailure("base")
+}
+
+var baseops []xf = []xf{
+	y4.ldw,
+	y4.ldb,
+	y4.stw,
+	y4.stb,
+	y4.beq,
+	y4.adi,
+	y4.lui,
+	y4.baseFail,
+}
+
+var yops []xf = []xf {
+	// TODO
+}
+
+var vops []xf = []xf {
+	// TODO
+}
+
+// base operations
+
+func (y4 *y4machine) ldw() {
+}
+
+func (y4 *y4machine) ldb() {
+}
+
+func (y4 *y4machine) stw() {
+}
+
+func (y4 *y4machine) stb() {
+}
+
+func (y4 *y4machine) beq() {
+}
+
+func (y4 *y4machine) adi() {
+}
+
+func (y4 *y4machine) lui() {
+}
+
+// 3-operand ALU operations all handled here
+
+func (y4 *y4machine) alu3() {
+}
+
+// 1-operand ALU operations all handled here
+
+func (y4 *y4machine) alu1() {
+}
+
 func (y4 *y4machine) executeSequential() {
+	if y4.isbase {
+		baseops[y4.op]()
+	} else if y4.isx {
+		y4.alu3()
+	} else if y4.isy {
+		yops[y4.yop]()
+	} else if y4.isz {
+		y4.alu1()
+	} else {
+		if !y4.isv {
+			y4.decodeFailure("vop")
+		}
+		vops[y4.vop]()
+	}
+	y4.decodeFailure("miss")
 }
