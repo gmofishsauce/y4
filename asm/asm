@@ -81,10 +81,28 @@ cat > ${RULES} << 'EOF'
 	#labelalign 8
     #addr 0x0000
 	#addr_end 0xFFFF
-	#outp 16 * (0x10000)
+	#outp 8 * 2 * 0x10000
 }
 
-#bank user_code
+#bankdef kern_code
+{
+	#bits 16
+	#labelalign 16
+	#addr 0x0000
+	#addr_end 0xFFFF
+	#outp 8 * 3 * 0x10000
+}
+
+#bankdef kern_data
+{
+    #bits 8
+	#labelalign 8
+    #addr 0x0000
+	#addr_end 0xFFFF
+	#outp 8 * 5 * 0x10000
+}
+
+#bank kern_code
 
 #subruledef reg
 {
