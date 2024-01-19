@@ -28,7 +28,6 @@ var dflag = flag.Bool("d", false, "enable debugging")
 // Functional simulator for y4 instruction set
 
 const K = 1024
-const limit = 10 // instruction execution limit
 const iosize = 32 // 32 words of i/o space
 const lr = 0 // link register is spr[0]
 const user = 0
@@ -36,25 +35,31 @@ const kern = 1
 
 type word uint16
 
+// Exception types. There can be only a few.
+
+const ExIllegal word = 1 // illegal instruction
+const ExMachine word = 2 // machine check
+
 type y4mem struct {
 	imem []word
 	dmem []byte
 }
 
 type y4machine struct {
-	mem []y4mem // [0] is user space, [1] is kernel
-	reg []word  // registers (r0 must be zero)
-	spr []word  // special registers
-	io  []word	// i/o space
+	cyc uint64   // cycle counter
+	mem []y4mem  // [0] is user space, [1] is kernel
+	reg []word   // registers (r0 must be zero)
+	spr []word   // special registers
+	io  []word	 // i/o space
 	pc word
 
 	// Non-architectural persisted state
-	running bool // run/stop flag (fake?)
+	run bool     // run/stop flag (fake?)
 	mode byte    // current mode, user = 0, kernel = 1
 
 	// Non-architectual semi-persistent state
 	// This is the longer term "fused instructions" bit
-	hc byte      // experimental hidden carry bit
+	hc uint16    // hidden carry bit, 1 or 0
 
 	// Non-architectural state set anywhere
 	ex word		 // 0 = no exception, nonzero values TBD
@@ -103,15 +108,17 @@ var y4 y4machine = y4machine {
 	spr: make([]word, 8, 8),
 	io: make([]word, iosize, iosize),
 	pc: 0,
-	running: false,
+	cyc: 0,
+	run: false,
 	mode: 0,
 	hc: 0,
 }
 
 func (y4 *y4machine) reset() {
+	y4.cyc = 0
 	y4.pc = 0
 	y4.mode = kern
-	y4.running = true
+	y4.run = true
 }
 
 func main() {
@@ -130,30 +137,45 @@ func main() {
 	}
 	pr(fmt.Sprintf("loaded %d bytes", n))
 
-	if err = y4.run(); err != nil {
+	// reset here in main so that run() can act as "continue" (TBD)`
+	fmt.Println("start")
+	y4.reset()
+	if err = y4.simulate(); err != nil {
 		fatal(fmt.Sprintf("running %s: %s", binPath, err.Error()))
 	}
 }
 
 // Run the simulator. There must already be something loaded in imem.
 
-func (y4 *y4machine) run() error {
-	var instCount int
-	y4.reset()
-	
+func (y4 *y4machine) simulate() error {
 	// The simulator is written as a rigid set of parameterless functions
 	// that act on shared machine state. This will make it simpler to
 	// simulate pipelining later.
-	// XXX The instruction limit is just for getting this running.
-	for instCount = 0; y4.running && instCount < limit; instCount++ {
+	//
+	// Sequential implementation: everything happens in each machine cycle.
+	// It happens in the order of a pipelined machine, though, to make
+	// converting this to a pipelined simulation easier in the future.
+
+	for ; y4.run ; y4.cyc++ {
+		if y4.ex != 0 {
+			// All exceptions cause aborts for now.
+			fmt.Printf("exception %d\n", y4.ex)
+			break
+		}
 		y4.fetch()
 		y4.decode()
 		y4.execute()
 		y4.memory()
 		y4.writeback()
+		if *dflag {
+			y4.dump()
+			var toss []byte = []byte{0}
+			os.Stdin.Read(toss)
+		}
 	}
 
-	pr(fmt.Sprintf("Stopped after %d instruction pc = 0x%04X", instCount, y4.pc))
+	fmt.Printf("stopped\n")
+	y4.dump()
 	return nil
 }
 
@@ -176,6 +198,9 @@ func (y4 *y4machine) fetch() {
 	// Control flow instructions will overwrite this at the writeback stage.
 	// This implementation is completely sequential so it's fine.
 	y4.pc++
+	if y4.pc == 0 {
+		y4.ex = ExMachine // machine check - PC wrapped		
+	}
 }
 
 // Pull out all the possible distinct field types into uint16s. The targets
@@ -292,7 +317,50 @@ func (y4 *y4machine) writeback() {
 	}
 }
 
+// I don't know exactly what I'm going to do for output from the
+// simulator. For now, I threw together this function, which dumps
+// the machine state and some memory contents to the screen.
 func (y4 *y4machine) dump() {
+	modeName := "user"
+	if y4.mode == 1 {
+		modeName = "kern"
+	}
+	fmt.Printf("Run %t mode %s cycle %d alu = 0x%04X pc = %d exception = 0x%04X\n",
+		y4.run, modeName, y4.cyc, y4.alu, y4.pc, y4.ex)
+
+	headerFormat := "%12s: "
+	fmt.Printf(headerFormat, "reg")
+	for i := range y4.reg {
+		fmt.Printf("%04X%s", y4.reg[i], spOrNL(i < len(y4.reg)-1))
+	}
+
+	fmt.Printf(headerFormat, "spr")
+	for i := range y4.spr {
+		fmt.Printf("%04X%s", y4.spr[i], spOrNL(i < len(y4.reg)-1))
+	}
+
+	mem := &y4.mem[y4.mode] // user or kernel
+	off := int(y4.pc & 0xFFF8)
+	fmt.Printf(headerFormat, fmt.Sprintf("imem@0x%04X", off))
+	for i := 0; i < 8; i++ {
+		fmt.Printf("%04X%s", mem.imem[off+i], spOrNL(i < len(y4.reg)-1))
+	}
+	
+	// The memory address, if there is one, always comes from the ALU
+	// Print the memory at the ALU address even though it might not have
+	// anything to do with current execution.
+	off = int(y4.alu & 0xFFF8)
+	fmt.Printf(headerFormat, fmt.Sprintf("dmem@0x%04X", off))
+	for i := 0; i < 8; i++ {
+		fmt.Printf("%04X%s", mem.dmem[off+i], spOrNL(i < len(y4.reg)-1))
+	}
+}
+
+func spOrNL(sp bool) string {
+	if sp {
+		return " "
+	}
+	return "\n"
 }
 
 func usage() {

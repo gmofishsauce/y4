@@ -44,6 +44,14 @@ func (y4 *y4machine) baseFail() {
 	y4.decodeFailure("base")
 }
 
+func (y4 *y4machine) yopFail() {
+	y4.decodeFailure("yop")
+}
+
+func (y4 *y4machine) zopFail() {
+	y4.decodeFailure("zop")
+}
+
 // Important: any execution function that expects to have its
 // result written back to the register file needs to set either
 // hasStandardWriteback or hasSpecialWriteback. These are used
@@ -69,6 +77,7 @@ var yops []xf = []xf {
 	y4.y04, // unused opcode
 	y4.ior,
 	y4.iow,
+	y4.yopFail,
 }
 
 var vops []xf = []xf {
@@ -87,11 +96,13 @@ var vops []xf = []xf {
 func (y4 *y4machine) ldw() {
 	y4.alu = uint16(y4.reg[y4.rb]) + y4.i7
 	y4.hasStandardWriteback = true
+	// memory operation handled in memory phase
 }
 
 func (y4 *y4machine) ldb() {
 	y4.alu = uint16(y4.reg[y4.rb]) + y4.i7
 	y4.hasStandardWriteback = true
+	// memory operation handled in memory phase
 }
 
 func (y4 *y4machine) stw() {
@@ -123,34 +134,87 @@ func (y4 *y4machine) lui() {
 // xops - 3-operand ALU operations all handled here
 
 func (y4 *y4machine) alu3() {
+	rs2 := uint16(y4.reg[y4.rc])
+	rs1 := uint16(y4.reg[y4.rb])
+
+	switch (y4.xop) {
+	case 0: // add
+		full := uint32(rs2 + rs1)
+		y4.alu = uint16(full&0xFFFF)
+		y4.hc = uint16((full & 0x10000) >> 16)
+	case 1: // adc
+		full := uint32(rs2 + rs1 + y4.hc)
+		y4.alu = uint16(full&0xFFFF)
+		y4.hc = uint16((full & 0x10000) >> 16)
+	case 2: // sub
+		full := uint32(rs2 - rs1)
+		y4.alu = uint16(full&0xFFFF)
+		y4.hc = uint16((full & 0x10000) >> 16)
+	case 3: // sbc
+		full := uint32(rs2 - rs1 - y4.hc)
+		y4.alu = uint16(full&0xFFFF)
+		y4.hc = uint16((full & 0x10000) >> 16)
+	case 4: // bic (nand)
+		full := uint32(rs2 &^ rs1)
+		y4.alu = uint16(full&0xFFFF)
+		y4.hc = 0
+	case 5: // bis (or)
+		full := uint32(rs2 | rs1)
+		y4.alu = uint16(full&0xFFFF)
+		y4.hc = 0
+	case 6: // xor
+		full := uint32(rs2 ^ rs1)
+		y4.alu = uint16(full&0xFFFF)
+		y4.hc = 0
+	case 7:
+		y4.decodeFailure("alu3 op == 7")	
+	}
 }
 
 // yops
 
 func (y4 *y4machine) wrs() {
+	TODO()
 }
 
 func (y4 *y4machine) rds() {
+	TODO()
 }
 
 func (y4 *y4machine) lds() {
+	TODO()
 }
 
 func (y4 *y4machine) sts() {
+	TODO()
 }
 
 func (y4 *y4machine) y04() {
+	TODO()
 }
 
 func (y4 *y4machine) ior() {
+	TODO()
 }
 
 func (y4 *y4machine) iow() {
+	TODO()
 }
 
 // zops - 1-operand ALU operations all handled here
 
 func (y4 *y4machine) alu1() {
+	switch y4.zop {
+	case 0: //not
+	case 1: //neg
+	case 2: //swb
+	case 3: //sxt
+	case 4: //lsr
+	case 5: //lsl
+	case 6: //asr
+	case 7:
+		y4.zopFail()
+	}
 }
 
 // vops - 0 operand instructions

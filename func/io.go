@@ -116,7 +116,7 @@ func (y4 *y4machine) load(binPath string) (int, error) {
 	var nLoaded int
 	var n int
 
-	if n, err = readChunk(f, buf, 0, nil, y4.mem[0].imem[0:64*K/2]); err != nil {
+	if n, err = readChunk(f, buf, 0, nil, y4.mem[user].imem[0:64*K/2]); err != nil {
 		return 0, err
 	}
 	nLoaded += n
@@ -124,7 +124,7 @@ func (y4 *y4machine) load(binPath string) (int, error) {
 		return nLoaded, nil
 	}
 
-	if n, err = readChunk(f, buf, 64*K, nil, y4.mem[0].imem[64*K/2:64*K]); err != nil {
+	if n, err = readChunk(f, buf, 64*K, nil, y4.mem[user].imem[64*K/2:64*K]); err != nil {
 		return 0, err
 	}
 	nLoaded += n
@@ -132,7 +132,7 @@ func (y4 *y4machine) load(binPath string) (int, error) {
 		return nLoaded, nil
 	}
 
-	if n, err = readChunk(f, buf, 128*K, y4.mem[0].dmem[0:64*K], nil); err != nil {
+	if n, err = readChunk(f, buf, 128*K, y4.mem[user].dmem[0:64*K], nil); err != nil {
 		return 0, err
 	}
 	nLoaded += n
@@ -140,7 +140,7 @@ func (y4 *y4machine) load(binPath string) (int, error) {
 		return nLoaded, nil
 	}
 
-	if n, err = readChunk(f, buf, 192*K, nil, y4.mem[1].imem[0:64*K/2]); err != nil {
+	if n, err = readChunk(f, buf, 192*K, nil, y4.mem[kern].imem[0:64*K/2]); err != nil {
 		return 0, err
 	}
 	nLoaded += n
@@ -148,7 +148,7 @@ func (y4 *y4machine) load(binPath string) (int, error) {
 		return nLoaded, nil
 	}
 
-	if n, err = readChunk(f, buf, 256*K, nil, y4.mem[1].imem[64*K/2:64*K]); err != nil {
+	if n, err = readChunk(f, buf, 256*K, nil, y4.mem[kern].imem[64*K/2:64*K]); err != nil {
 		return 0, err
 	}
 	nLoaded += n
@@ -156,7 +156,7 @@ func (y4 *y4machine) load(binPath string) (int, error) {
 		return nLoaded, nil
 	}
 
-	if n, err = readChunk(f, buf, 320*K, y4.mem[1].dmem[0:64*K], nil); err != nil {
+	if n, err = readChunk(f, buf, 320*K, y4.mem[kern].dmem[0:64*K], nil); err != nil {
 		return 0, err
 	}
 	nLoaded += n
