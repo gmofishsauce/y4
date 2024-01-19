@@ -82,7 +82,7 @@ type y4machine struct {
 	// or, if there's a load, at memory time, and placed in the wb
 	// register. The wb register is written to either a general or
 	// special register at writeback time as required by the opcode.
-	alu word   // temporary alu result register
+	alu uint16  // temporary alu result register
 	sd word    // memory source data register
 	wb word    // register writeback (instruction result)
 
@@ -261,7 +261,7 @@ func (y4 *y4machine) memory() {
 		// have a result. But if they do, it comes 
 		// from the alu. So put the alu output in the
 		// writeback register; it will be used, or not.
-		y4.wb = y4.alu
+		y4.wb = word(y4.alu)
 	}
 }
 
@@ -283,11 +283,16 @@ func (y4 *y4machine) writeback() {
 		(y4.isy && y4.yop == 5) ||  // ior
 		y4.isz {       // single operand alu
 
-		y4.reg[y4.ra] = y4.wb
+		if y4.ra != 0 {
+			y4.reg[y4.ra] = y4.wb
+		}
 	} else if y4.isy && (y4.yop == 1 || y4.yop == 2) {
 		// lds, rds
 		y4.spr[y4.rb] = y4.wb
 	}
+}
+
+func (y4 *y4machine) dump() {
 }
 
 func usage() {

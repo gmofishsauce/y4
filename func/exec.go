@@ -40,10 +40,15 @@ func (y4 *y4machine) decodeFailure(msg string) {
 	panic("executeSequential(): decode failure: " + msg)
 }
 
-
 func (y4 *y4machine) baseFail() {
 	y4.decodeFailure("base")
 }
+
+// Important: any execution function that expects to have its
+// result written back to the register file needs to set either
+// hasStandardWriteback or hasSpecialWriteback. These are used
+// at the writeback stage of the instruction to gate writing
+// to either the special or general register array.
 
 var baseops []xf = []xf{
 	y4.ldw,
@@ -57,44 +62,121 @@ var baseops []xf = []xf{
 }
 
 var yops []xf = []xf {
-	// TODO
+	y4.wrs,
+	y4.rds,
+	y4.lds,
+	y4.sts,
+	y4.y04, // unused opcode
+	y4.ior,
+	y4.iow,
 }
 
 var vops []xf = []xf {
-	// TODO
+	y4.sys,
+	y4.srt,
+	y4.v02, // unused opcode
+	y4.v03, // unused opcode
+	y4.rtl,
+	y4.hlt,
+	y4.brk,
+	y4.die,
 }
 
 // base operations
 
 func (y4 *y4machine) ldw() {
+	y4.alu = uint16(y4.reg[y4.rb]) + y4.i7
+	y4.hasStandardWriteback = true
 }
 
 func (y4 *y4machine) ldb() {
+	y4.alu = uint16(y4.reg[y4.rb]) + y4.i7
+	y4.hasStandardWriteback = true
 }
 
 func (y4 *y4machine) stw() {
+	y4.alu = uint16(y4.reg[y4.rb]) + y4.i7
+	// no register writeback
+	// memory operation handled in memory phase
 }
 
 func (y4 *y4machine) stb() {
+	y4.alu = uint16(y4.reg[y4.rb]) + y4.i7
+	// no register writeback
+	// memory operation handled in memory phase
 }
 
 func (y4 *y4machine) beq() {
+	if y4.reg[y4.rb] == y4.reg[y4.ra] {
+		y4.pc = word(uint16(y4.pc) + y4.i7)
+	}
 }
 
 func (y4 *y4machine) adi() {
+	y4.alu = uint16(y4.reg[y4.rb]) + y4.i7
 }
 
 func (y4 *y4machine) lui() {
+	y4.alu = y4.i10
 }
 
-// 3-operand ALU operations all handled here
+// xops - 3-operand ALU operations all handled here
 
 func (y4 *y4machine) alu3() {
 }
 
-// 1-operand ALU operations all handled here
+// yops
+
+func (y4 *y4machine) wrs() {
+}
+
+func (y4 *y4machine) rds() {
+}
+
+func (y4 *y4machine) lds() {
+}
+
+func (y4 *y4machine) sts() {
+}
+
+func (y4 *y4machine) y04() {
+}
+
+func (y4 *y4machine) ior() {
+}
+
+func (y4 *y4machine) iow() {
+}
+
+// zops - 1-operand ALU operations all handled here
 
 func (y4 *y4machine) alu1() {
+}
+
+// vops - 0 operand instructions
+
+func (y4 *y4machine) sys() {
+}
+
+func (y4 *y4machine) srt() {
+}
+
+func (y4 *y4machine) v02() {
+}
+
+func (y4 *y4machine) v03() {
+}
+
+func (y4 *y4machine) rtl() {
+}
+
+func (y4 *y4machine) hlt() {
+}
+
+func (y4 *y4machine) brk() {
+}
+
+func (y4 *y4machine) die() {
 }
 
 func (y4 *y4machine) executeSequential() {
@@ -112,5 +194,4 @@ func (y4 *y4machine) executeSequential() {
 		}
 		vops[y4.vop]()
 	}
-	y4.decodeFailure("miss")
 }
