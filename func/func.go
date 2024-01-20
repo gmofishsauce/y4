@@ -210,10 +210,12 @@ func (y4 *y4machine) sxtImm() uint16 {
 
 // Fetch next instruction into ir. Future: MMU page faults.
 func (y4 *y4machine) fetch() {
-	y4.ex = 0	// I don't know if we should clear these ... it hides bugs.
+	y4.ex = 0	// I don't know if we should clear these ... hides bugs?
 	y4.alu = 0
 	y4.sd = 0
 	y4.wb = 0
+	y4.hasStandardWriteback = false
+	y4.hasSpecialWriteback = false
 
 	mem := &y4.mem[y4.mode]
 	y4.ir = mem.imem[y4.pc]
@@ -308,7 +310,6 @@ func (y4 *y4machine) memory() {
 		// have a result. But if they do, it comes 
 		// from the alu. So put the alu output in the
 		// writeback register; it will be used, or not.
-		dbg("set wb to 0x%04X", y4.alu)
 		y4.wb = word(y4.alu)
 	}
 }
@@ -332,7 +333,6 @@ func (y4 *y4machine) writeback() {
 		y4.isz {       // single operand alu
 
 		if y4.ra != 0 {
-			dbg("set reg %d to 0x%04X", y4.ra, y4.wb)
 			y4.reg[y4.ra] = y4.wb
 		}
 	} else if y4.isy && (y4.yop == 1 || y4.yop == 2) {

@@ -97,7 +97,8 @@ func (y4 *y4machine) ldw() {
 	// We end up here for zero opcodes. These try
 	// to load r0 which is the black hole register.
 	// Instead of having them be noops, we call
-	// them illegal instructions.
+	// them illegal instructions. This prevents
+	// running uninitialized memory.
 	if y4.ir == 0 {
 		y4.ex = ExIllegal
 		return
@@ -127,7 +128,6 @@ func (y4 *y4machine) stb() {
 
 func (y4 *y4machine) beq() {
 	if y4.reg[y4.rb] == y4.reg[y4.ra] {
-		dbg("beq y4.imm == %d", y4.imm)
 		y4.pc = word(uint16(y4.pc) + y4.imm)
 	}
 	// no standard register writeback
@@ -251,27 +251,35 @@ func (y4 *y4machine) alu1() {
 // vops - 0 operand instructions
 
 func (y4 *y4machine) sys() {
+	TODO()
 }
 
 func (y4 *y4machine) srt() {
+	TODO()
 }
 
 func (y4 *y4machine) v02() {
+	TODO()
 }
 
 func (y4 *y4machine) v03() {
+	TODO()
 }
 
 func (y4 *y4machine) rtl() {
+	TODO()
 }
 
 func (y4 *y4machine) hlt() {
+	y4.run = false
 }
 
 func (y4 *y4machine) brk() {
+	TODO()
 }
 
 func (y4 *y4machine) die() {
+	y4.ex = ExIllegal
 }
 
 func (y4 *y4machine) executeSequential() {
