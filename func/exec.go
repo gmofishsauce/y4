@@ -94,41 +94,53 @@ var vops []xf = []xf {
 // base operations
 
 func (y4 *y4machine) ldw() {
-	y4.alu = uint16(y4.reg[y4.rb]) + y4.i7
+	// We end up here for zero opcodes. These try
+	// to load r0 which is the black hole register.
+	// Instead of having them be noops, we call
+	// them illegal instructions.
+	if y4.ir == 0 {
+		y4.ex = ExIllegal
+		return
+	}
+	y4.alu = uint16(y4.reg[y4.rb]) + y4.imm
 	y4.hasStandardWriteback = true
 	// memory operation handled in memory phase
 }
 
 func (y4 *y4machine) ldb() {
-	y4.alu = uint16(y4.reg[y4.rb]) + y4.i7
+	y4.alu = uint16(y4.reg[y4.rb]) + y4.imm
 	y4.hasStandardWriteback = true
 	// memory operation handled in memory phase
 }
 
 func (y4 *y4machine) stw() {
-	y4.alu = uint16(y4.reg[y4.rb]) + y4.i7
+	y4.alu = uint16(y4.reg[y4.rb]) + y4.imm
 	// no register writeback
 	// memory operation handled in memory phase
 }
 
 func (y4 *y4machine) stb() {
-	y4.alu = uint16(y4.reg[y4.rb]) + y4.i7
+	y4.alu = uint16(y4.reg[y4.rb]) + y4.imm
 	// no register writeback
 	// memory operation handled in memory phase
 }
 
 func (y4 *y4machine) beq() {
 	if y4.reg[y4.rb] == y4.reg[y4.ra] {
-		y4.pc = word(uint16(y4.pc) + y4.i7)
+		dbg("beq y4.imm == %d", y4.imm)
+		y4.pc = word(uint16(y4.pc) + y4.imm)
 	}
+	// no standard register writeback
 }
 
 func (y4 *y4machine) adi() {
-	y4.alu = uint16(y4.reg[y4.rb]) + y4.i7
+	y4.alu = uint16(y4.reg[y4.rb]) + y4.imm
+	y4.hasStandardWriteback = true
 }
 
 func (y4 *y4machine) lui() {
-	y4.alu = y4.i10
+	y4.alu = y4.imm
+	y4.hasStandardWriteback = true
 }
 
 // xops - 3-operand ALU operations all handled here
@@ -136,6 +148,7 @@ func (y4 *y4machine) lui() {
 func (y4 *y4machine) alu3() {
 	rs2 := uint16(y4.reg[y4.rc])
 	rs1 := uint16(y4.reg[y4.rb])
+	y4.hasStandardWriteback = true
 
 	switch (y4.xop) {
 	case 0: // add
@@ -204,14 +217,32 @@ func (y4 *y4machine) iow() {
 // zops - 1-operand ALU operations all handled here
 
 func (y4 *y4machine) alu1() {
+	rs1 := uint16(y4.reg[y4.ra])
+	y4.hasStandardWriteback = true
+
 	switch y4.zop {
 	case 0: //not
+		y4.alu = ^rs1
 	case 1: //neg
+		y4.alu = 1 + ^rs1
 	case 2: //swb
+		y4.alu = rs1 >> 8 | rs1 << 8
 	case 3: //sxt
+		if rs1&0x80 != 0 {
+			y4.alu = rs1 | 0xFF00
+		} else {
+			y4.alu = rs1 &^ 0xFF00
+		}
 	case 4: //lsr
+		y4.alu = rs1 >> 1
 	case 5: //lsl
+		y4.alu = rs1 << 1
 	case 6: //asr
+		sign := rs1 & 0x8000
+		y4.alu = rs1 >> 1
+		if sign != 0 {
+			y4.alu |= sign
+		}
 	case 7:
 		y4.zopFail()
 	}

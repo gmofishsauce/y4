@@ -66,7 +66,7 @@ type y4machine struct {
 
 	// Non-architectural per-cycle state set at decode
 	ir word      // instruction register
-	op, i7, i10 uint16
+	op, imm uint16
 	xop, yop, zop, vop uint16
 	isx, isy, isz, isv bool
 	ra, rb, rc uint16
@@ -185,6 +185,29 @@ func (w word) bits(hi int, lo int) uint16 {
 	return uint16(w>>lo) & uint16(1<<(hi-lo+1)-1)
 }
 
+// Decode a sign extended 10 or 7 bit immediate value from the current
+// instruction. If the instruction doesn't have an immediate value, then
+// the rest of the decode shouldn't try to use it so the return value is
+// not important. In this case return the most harmless value, 0.
+func (y4 *y4machine) sxtImm() uint16 {
+	var result uint16
+	ir := y4.ir
+	op := ir.bits(15,13)
+	neg := ir.bits(12,12) != 0
+	if op < 6 { // ldw, ldb, stw, stb, beq, adi all have 7-bit immediates
+		result = ir.bits(12,6)
+		if neg {
+			result |= 0xFF80
+		}
+	} else if op == 6 { // lui has a 10-bit immediate, upper bits
+		result = ir.bits(12, 3) << 6
+	} else if op == 7 && !neg { // jlr - 7-bit immediate if positive
+		result = ir.bits(12,6)
+	}
+	// else bits(15,12) == 0xF and the instruction has no immediate value
+	return result
+}
+
 // Fetch next instruction into ir. Future: MMU page faults.
 func (y4 *y4machine) fetch() {
 	y4.ex = 0	// I don't know if we should clear these ... it hides bugs.
@@ -210,8 +233,7 @@ func (y4 *y4machine) fetch() {
 // targets? Which target special registers?) is left to the execution code.
 func (y4 *y4machine) decode() {
 	y4.op = y4.ir.bits(15,13)	// base opcode
-	y4.i7 = y4.ir.bits(12,6)	// 7-bit immediate, when present
-	y4.i10 = y4.ir.bits(12,3)	// 10-bit immediate, when present
+	y4.imm = y4.sxtImm()
 
 	y4.xop = y4.ir.bits(11,9)
 	y4.yop = y4.ir.bits(8,6)
@@ -286,6 +308,7 @@ func (y4 *y4machine) memory() {
 		// have a result. But if they do, it comes 
 		// from the alu. So put the alu output in the
 		// writeback register; it will be used, or not.
+		dbg("set wb to 0x%04X", y4.alu)
 		y4.wb = word(y4.alu)
 	}
 }
@@ -309,6 +332,7 @@ func (y4 *y4machine) writeback() {
 		y4.isz {       // single operand alu
 
 		if y4.ra != 0 {
+			dbg("set reg %d to 0x%04X", y4.ra, y4.wb)
 			y4.reg[y4.ra] = y4.wb
 		}
 	} else if y4.isy && (y4.yop == 1 || y4.yop == 2) {
