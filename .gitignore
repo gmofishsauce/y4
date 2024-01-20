@@ -33,3 +33,7 @@ sim/sim
 dis/dis
 itf/itf
 func/func
+
+# more executables - in the save/ directory, stuff I'm not using.
+save/asm/asm
+save/sim/sim
