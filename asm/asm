@@ -118,19 +118,13 @@ cat > ${RULES} << 'EOF'
 
 #subruledef wsr ; special registers that can be written
 {
-	psw => 0o0 ; read/write
+	lnk => 0o0
 }
 
 #subruledef rsr ; special registers that can be read
 {
-	psw => 0o0 ; read/write
-	lnk => 0o1 ; read only - written by jlr
-	pc  => 0o2 ; read only - written by all flow control instructions
-}
-
-#subruledef imm3 ; only for the currently undefined rB field of jlr
-{
-	{imm: i3} => imm
+	lnk => 0o0 ; read only - written by jlr
+	pc  => 0o1 ; read only - written by all flow control instructions
 }
 
 #subruledef imm6 ; for positive 6-bit immediates in a 7-bit field
@@ -148,7 +142,7 @@ cat > ${RULES} << 'EOF'
 	{imm: i10} => imm
 }
 
-#subruledef imm16 ; 16-bit immediate used in psuedo for lui/adi pair
+#subruledef imm16 ; 16-bit immediate used in psuedos
 {
 	{imm: i16} => imm
 }
@@ -165,7 +159,10 @@ cat > ${RULES} << 'EOF'
 	}
 	adi {ra: reg}, {rb: reg}, {imm: imm7}   => le(0b101   @ imm @ rb @ ra)
 	lui {ra: reg}, {imm: imm10}             => le(0b110   @ imm @ ra)
-	jlr {ra: reg}, {xx: imm3}, {imm: imm6}  => le(0b111_0 @ imm @ xx @ ra)
+
+	; jlr has 0b1110 in the upper four bits.
+	; jlr doesn't exist in assembler. Instead, it becomes jsr, jmp, or sys
+	; these are defined under instruction aliases, below.
 }
 
 ; All remaining opcodes have 0b1111 = 0xF in the upper four bits.
@@ -186,13 +183,13 @@ cat > ${RULES} << 'EOF'
 
 #ruledef ; YOPs are two-register operations.
 {
-	wrs {ra: wsr}, {rb: reg}  => le(0xF @ 0b111  @ 0b000 @ rb @ ra) ; write special
-	rds {ra: rsr}, {rb: reg}  => le(0xF @ 0b111  @ 0b001 @ rb @ ra) ; read special
-	lds {ra: wsr}, {rb: reg}  => le(0xF @ 0b111  @ 0b010 @ rb @ ra) ; load special
-	sts {ra: rsr}, {rb: reg}  => le(0xF @ 0b111  @ 0b011 @ rb @ ra) ; store special
-	y04 {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b100 @ rb @ ra)
-	ior {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b101 @ rb @ ra)
-	iow {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b110 @ rb @ ra)
+	lds {ra: wsr}, {rb: reg}  => le(0xF @ 0b111  @ 0b000 @ rb @ ra) ; load special
+	sts {ra: rsr}, {rb: reg}  => le(0xF @ 0b111  @ 0b001 @ rb @ ra) ; store special
+	rds {ra: wsr}, {rb: reg}  => le(0xF @ 0b111  @ 0b010 @ rb @ ra) ; read special
+	wrs {ra: rsr}, {rb: reg}  => le(0xF @ 0b111  @ 0b011 @ rb @ ra) ; write special
+	ior {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b100 @ rb @ ra)
+	iow {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b101 @ rb @ ra)
+	y07 {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b110 @ rb @ ra)
 }
 
 ; All remaining instructions have 1's in the top 10 bits.
@@ -215,13 +212,13 @@ cat > ${RULES} << 'EOF'
 
 #ruledef ; VOPs are zero-register operations.
 {
-	sys => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b000)
-	srt => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b001)
+	srt => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b000)
+	rtl => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b001)
 	v02 => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b010)
 	v03 => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b011)
-	rtl => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b100)
-	hlt => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b101)
-	brk => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b110)
+	hlt => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b100)
+	brk => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b101)
+	v06 => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b110)
 	die => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b111)
 }
 
@@ -229,14 +226,36 @@ cat > ${RULES} << 'EOF'
 
 #ruledef ; aliases
 {
-	lli {ra: reg}, {imm: imm6} => asm { adi {ra}, r0, {imm} }
+	lli {ra: reg}, {imm: imm7} => asm { adi {ra}, r0, {imm} }
+
 	ldi {ra: reg}, {imm: u16}  => 
 	{
-		upper_imm = (imm>>6)&0b11_1111_1111 ; imm10
-		lower_imm = (imm&0b11_1111)         ; imm6
+		upper_imm = (imm>>6)&0x3FF    ; imm10
+		lower_imm = (imm&0x3F)`6      ; imm6
 		asm { lui {ra}, {upper_imm} } @ asm { adi {ra}, r0, {lower_imm} }
 	}
-	nop => asm { adi r0, r0, 0 }
+
+	nop => asm { neg r0 }
+
+	; for the instructions below, ms bits of 0b111_0 (0xE) is JLR.
+
+	sys {imm: imm6} => le(0b111_0 @ imm @ 0b000 @ r0)
+
+	jsr {ra: reg}, {imm: u16} => {
+		upper_imm = (imm>>6)&0x3FF   ; imm10
+		lower_imm = (imm&0x3F)`6     ; imm6
+		asm{ lui {ra}, {upper_imm} } @ le(0b111_0 @ lower_imm @ 0b000 @ ra)
+	}
+
+	jsr {ra: reg} =>  le(0b111_0 @ 0b000_000 @ 0b000 @ ra)
+
+	jmp {ra: reg}, {imm: u16} => {
+		upper_imm = (imm>>6)&0x3FF   ; imm10
+		lower_imm = (imm&0x3F)`6     ; imm6
+		asm{ lui {ra}, {upper_imm} } @ le(0b111_0 @ lower_imm @ 0b001 @ ra)
+	}
+
+	jmp {ra: reg} =>  le(0b111_0 @ 0b000_000 @ 0b001 @ ra)
 }
 
 ; Pseudos

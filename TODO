@@ -1,0 +1,17 @@
+Place instruction set in a separate Google Doc. (Done.)
+
+Make initial assignment of special registers and exception numbers. (Meh.)
+
+Renumber yops. Fix doc, asm, dis, add test in itf, and implement yops in func.
+
+Decide whether 0x0000 is permanently going to be an illegal opcode.
+
+Fix the disassembler to handle both kernel and user code.
+
+Decide whether the disassembler should be callable from func.
+	Or else maybe modify func to print instructions in better format,
+	something like o3.b.o3.o3.o3.o3 for easier eyeball disassembly.
+
+Fix func to make no output when -d is not given.
+
+Eventually, add -i for single step interactive and use -d for debugging.
