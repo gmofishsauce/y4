@@ -206,13 +206,14 @@ cat > ${RULES} << 'EOF'
 }
 
 ; The remaining instructions have 1's in the top 13 bits and no operands.
-; SYS and SRT might be replaced by encodings in the rB field of JLR.
-; RTL (return link) is a jump to the link special register. DIE generates
-; an illegal instruction fault.
+; RTI is return from trap or interrupt. RTL (return link) is a jump to the
+; link special register. It's an ordinary usermode instruction, useful for
+; "leaf" functions that don't stack the link register. DIE generates an
+; illegal instruction fault. The opcode 0 does too.
 
 #ruledef ; VOPs are zero-register operations.
 {
-	srt => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b000)
+	rti => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b000)
 	rtl => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b001)
 	v02 => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b010)
 	v03 => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b011)

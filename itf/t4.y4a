@@ -1,0 +1,11 @@
+; this test uses all the psueo instruction variants.
+start:
+	ldi r5, start
+	lli r6, 2
+	jmp r7, start
+	jmp (r5)
+	jsr r7, start
+	jsr (r5)
+	sys 2
+	nop
+
