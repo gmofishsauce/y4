@@ -116,15 +116,10 @@ cat > ${RULES} << 'EOF'
     r7 => 0o7
 }
 
-#subruledef wsr ; special registers that can be written
+#subruledef spr ; special registers
 {
-	lnk => 0o0
-}
-
-#subruledef rsr ; special registers that can be read
-{
-	lnk => 0o0 ; read only - written by jlr
-	pc  => 0o1 ; read only - written by all flow control instructions
+	pc  => 0o0
+	lnk => 0o1
 }
 
 #subruledef imm6 ; for positive 6-bit immediates in a 7-bit field
@@ -178,15 +173,14 @@ cat > ${RULES} << 'EOF'
 	xor {ra: reg}, {rb: reg}, {rc: reg}  => le(0xF @ 0b110  @ rc @ rb @ ra)
 }
 
-; All remaining opcodes have 0b1111_111 in the upper seven bits.
-; wsr means "writeable special register". rsr "readable special register"
+; All remaining opcodes have 0b1111_111 in the upper seven bits. spr => special register
 
 #ruledef ; YOPs are two-register operations.
 {
-	lds {ra: wsr}, {rb: reg}  => le(0xF @ 0b111  @ 0b000 @ rb @ ra) ; load special
-	sts {ra: rsr}, {rb: reg}  => le(0xF @ 0b111  @ 0b001 @ rb @ ra) ; store special
-	rds {ra: wsr}, {rb: reg}  => le(0xF @ 0b111  @ 0b010 @ rb @ ra) ; read special
-	wrs {ra: rsr}, {rb: reg}  => le(0xF @ 0b111  @ 0b011 @ rb @ ra) ; write special
+	lds {ra: spr}, {rb: reg}  => le(0xF @ 0b111  @ 0b000 @ rb @ ra) ; load special
+	sts {ra: spr}, {rb: reg}  => le(0xF @ 0b111  @ 0b001 @ rb @ ra) ; store special
+	rds {ra: spr}, {rb: reg}  => le(0xF @ 0b111  @ 0b010 @ rb @ ra) ; read special
+	wrs {ra: spr}, {rb: reg}  => le(0xF @ 0b111  @ 0b011 @ rb @ ra) ; write special
 	ior {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b100 @ rb @ ra)
 	iow {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b101 @ rb @ ra)
 	y07 {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b110 @ rb @ ra)
@@ -215,8 +209,8 @@ cat > ${RULES} << 'EOF'
 {
 	rti => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b000)
 	rtl => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b001)
-	v02 => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b010)
-	v03 => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b011)
+	di  => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b010)
+	ei  => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b011)
 	hlt => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b100)
 	brk => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b101)
 	v06 => le(0xF @ 0b111 @ 0b111 @0b111 @ 0b110)
@@ -240,7 +234,12 @@ cat > ${RULES} << 'EOF'
 
 	; for the instructions below, ms bits of 0b111_0 (0xE) is JLR.
 
-	sys {imm: imm6} => le(0b111_0 @ imm @ 0b000 @ r0)
+	sys {imm: imm6} => { ; we allow all 32 traps. We may change this.
+		i=imm
+		assert(i>=0&&i<64, "sys: 64 > argument >= 0")
+		assert(i&1!=1, "sys: argument must be even")
+		le(0b111_0 @ i`6 @ 0b000 @ 0b000)
+	}
 
 	jsr {ra: reg}, {imm: u16} => {
 		upper_imm = (imm>>6)&0x3FF   ; imm10
@@ -265,7 +264,7 @@ cat > ${RULES} << 'EOF'
 ; .align is #align <bit-alignment>, e.g. .align 2 is #align 16
 ; .string is #d "string" (or "string\0"). Strings are utf-8
 ; label: string "four" is label: #d "four"
-; and then len = $ - label ; len is 4 ("four" is not nul-terminated)
+; and then len = $ - label ; len is 4 (5? nul terminated?)
 ; .byte is #d8
 ; .word is #d16
 ; .space is #res
@@ -273,4 +272,5 @@ cat > ${RULES} << 'EOF'
 
 EOF
 
-customasm -o "${OUTPUT}" "${RULES}" $@
+customasm --color=off -o "${OUTPUT}" "${RULES}" $@ # 2>&1 >/dev/null | (grep -E 'error|^[0-9]' || true)
+

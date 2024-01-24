@@ -3,10 +3,10 @@
 ldb r1, r1, 1
 stw r3, r3, 0x8
 stb r4, r4, 16
-beq r3, r3, -20
+beq r3, r3, 3
 adi r0, r2, 10
 lui r6, 1000
-jmp r6, 16
+jmp r6, 7
 rds lnk, r2
 lli r5, 42
 ldi r0, 0xC3C3

@@ -54,7 +54,7 @@ var RegNames []string = []string {
 
 // Names of special registers, indexed by field content
 var SprNames []string = []string {
-	"lnk", "pc", "err3", "err4", "err5", "err6", "err7",
+	"pc", "lnk", "err3", "err4", "err5", "err6", "err7",
 }
 
 // The allowed mnemonics and their signatures. This table is
@@ -100,10 +100,10 @@ var KeyTable []KeyEntry = []KeyEntry {
 	{"asr", 13, 0xFFF0, RXX},
 
 	// 0 operand VOPs
-	{"srt", 16, 0xFFF8, XXX},
+	{"rti", 16, 0xFFF8, XXX},
 	{"rtl", 16, 0xFFF9, XXX},
-	{"v02", 16, 0xFFFA, XXX},
-	{"v03", 16, 0xFFFB, XXX},
+	{"di ", 16, 0xFFFA, XXX},
+	{"ei ", 16, 0xFFFB, XXX},
 	{"hlt", 16, 0xFFFC, XXX},
 	{"brk", 16, 0xFFFD, XXX},
 	{"v06", 16, 0xFFFE, XXX},
@@ -159,31 +159,46 @@ func disassemble(f *os.File) error {
 func disassembleSection(f *os.File, pos int64) error {
 	var b []byte = make([]byte, 2, 2) 
 	var inst uint16
-	var at int64 // 16-bit instruction index in section
+	var at int // 16-bit instruction index in section
 	var err error
 
-	for n, err := f.ReadAt(b, pos); n == 2 && err == nil && at < 2*K64; n, err = f.ReadAt(b, pos) {
+	// As we disassemble, we must watch for jmp and jsr. These mnemonics assemble
+	// to an LUI followed by an opcode, called "jlr" in the architecture document,
+	// that doesn't have a separate definition in the assembler; it subsumes the
+	// lui. In this case we don't emit the preceding lui, which we necessarily have
+	// already disassembled. So we have to hold each line, even lui, to see if it's
+	// followed by a jlr (0xEnnn) opcode that subsumes it.
+	var linebuf string
+
+	for n, err := f.ReadAt(b, pos); n == 2 && err == nil && at < int(2*K64); n, err = f.ReadAt(b, pos) {
 		if inst = binary.LittleEndian.Uint16(b[:]); inst == 0 {
 			break
 		}
-		if (*qflag) {
-			fmt.Println(decode(inst))
-		} else {
-			fmt.Printf("%5d: 0x%04X: %s\n", at, inst, decode(inst))
+		if len(linebuf) != 0 && bits(inst,15,12) != 0xE {
+			fmt.Println(linebuf)
+			// else it will be consumed below
 		}
-		at++
-		pos += 2
+		if (*qflag) {
+			linebuf = decode(inst, at)
+		} else {
+			linebuf = fmt.Sprintf("%5d: 0x%04X: %s\n", at, inst, decode(inst, at))
+		}
+		at++      // instruction index
+		pos += 2  // file position
 	}
 	if err != nil && !errors.Is(err, io.EOF) {
 		return err
 	}
+	if len(linebuf) != 0 {
+		fmt.Println(linebuf)
+	}
 	return nil
 }
 
-func decode(op uint16) string {
-	// So the key table has column "nbits". It specifies how many
+func decode(op uint16, at int) string {
+	// The key table has column "nbits". It specifies how many
 	// upper bits of matching opcode are required to recognize the
-	// instruction. If the nbits column holds 3, (op&0b111)<<13
+	// instruction. If the nbits column holds 3, op&(0b111<<13)
 	// must match the entry's opcode masked with the same mask. If
 	// it does then we can get the signature and decode the rest of
 	// the instruction. We could build a hashmap for this, but the
@@ -207,8 +222,15 @@ func decode(op uint16) string {
 	var args string
 	switch found.signature {
 	case RRI:
+		// Special case for computing the branch target. We don't want to emit
+		// the branch *offset* into the disassembly, we want the *target*.
+		imm := bits(op,12,6)
+		if bits(op,15,13) == 4 { // beq
+			imm = uint16((int(imm)+at+1)&0x7F)
+			dbg("### imm = 0x%x at = %d", imm, at)
+		}
 		args = fmt.Sprintf("%s, %s, 0x%02X",
-			RegNames[bits(op,2,0)], RegNames[bits(op,5,3)], bits(op,12,6))
+			RegNames[bits(op,2,0)], RegNames[bits(op,5,3)], imm)
 	case RHI:
 		// A bit ugly but in this case we have to return the whole instruction
 		// here, rather than just the args.

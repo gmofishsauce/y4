@@ -20,10 +20,10 @@ cont:
 	bis r5, r5, r5
 	xor r6, r6, r7
 
-	wrs psw, r0
-	rds psw, r0
-	lds psw, r0
-	sts psw, r0
+	wrs lnk, r0
+	rds lnk, r0
+	lds lnk, r0
+	sts lnk, r0
 	ior r0, r0
 	iow r0, r0
 
@@ -35,11 +35,10 @@ cont:
 	lsl r5
 	asr r6
 
-	sys
-	srt
-	v02
-	v03
+	rti
 	rtl
+	di
+	ei
 	hlt
 	brk
 	die
