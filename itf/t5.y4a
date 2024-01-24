@@ -1,1 +1,3 @@
+#bank user_code
+#bank kern_code
 ldw r1, r0, 0

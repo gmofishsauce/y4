@@ -102,7 +102,7 @@ cat > ${RULES} << 'EOF'
 	#outp 8 * 5 * 0x10000
 }
 
-#bank kern_code
+#bank user_code ; set default
 
 #subruledef reg
 {
@@ -242,20 +242,32 @@ cat > ${RULES} << 'EOF'
 	}
 
 	jsr {ra: reg}, {imm: u16} => {
+		i=ra
+		assert(i!=0, "r0 not permitted")
 		upper_imm = (imm>>6)&0x3FF   ; imm10
 		lower_imm = (imm&0x3F)`6     ; imm6
 		asm{ lui {ra}, {upper_imm} } @ le(0b111_0 @ lower_imm @ 0b000 @ ra)
 	}
 
-	jsr {ra: reg} =>  le(0b111_0 @ 0b000_000 @ 0b000 @ ra)
+	jsr {ra: reg} =>  {
+		i=ra
+		assert(i!=0, "r0 not permitted")
+		le(0b111_0 @ 0b000_000 @ 0b000 @ ra)
+	}
 
 	jmp {ra: reg}, {imm: u16} => {
+		i=ra
+		assert(i!=0, "r0 not permitted")
 		upper_imm = (imm>>6)&0x3FF   ; imm10
 		lower_imm = (imm&0x3F)`6     ; imm6
 		asm{ lui {ra}, {upper_imm} } @ le(0b111_0 @ lower_imm @ 0b001 @ ra)
 	}
 
-	jmp {ra: reg} =>  le(0b111_0 @ 0b000_000 @ 0b001 @ ra)
+	jmp {ra: reg} => {
+		i=ra
+		assert(i!=0, "r0 not permitted")
+		le(0b111_0 @ 0b000_000 @ 0b001 @ ra)
+	}
 }
 
 ; Pseudos

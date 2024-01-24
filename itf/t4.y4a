@@ -1,4 +1,6 @@
 ; this test uses all the psueo instruction variants.
+#bank user_code
+#bank kern_code
 start:
 	ldi r5, start
 	lli r6, 2

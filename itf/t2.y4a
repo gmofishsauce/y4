@@ -1,4 +1,6 @@
 ; Just some randomish code. Touches most of the instructions.
+#bank user_code
+#bank kern_code
 xor r7, r7, r7 ; clear r7 (initialize sp)
 
 lui r1, 0xFFFF>>6 ; load -1 to r1

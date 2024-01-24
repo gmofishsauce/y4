@@ -1,5 +1,7 @@
 ; this is just a random little test that I made up while
 ; I was developing the assembler. It is what it is.
+#bank user_code
+#bank kern_code
 ldb r1, r1, 1
 stw r3, r3, 0x8
 stb r4, r4, 16

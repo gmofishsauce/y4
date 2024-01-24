@@ -1,0 +1,10 @@
+#!/bin/bash
+for i in 1 2 3 4 5 6 ; do
+	f="t${i}.y4a"
+	echo "Doing $i..."
+	if ./itf t${i}.y4a 2>&1 >/dev/null | grep 'itf: passed' ; then
+		: nothing
+	else
+		echo "error: test $i failed."
+	fi
+done
