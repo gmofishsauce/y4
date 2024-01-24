@@ -1,5 +1,4 @@
-#bank user_code
-#bank kern_code
+#bank code
 start:
 	beq r0, r0, start
 	beq r0, r0, start

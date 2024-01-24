@@ -1,5 +1,4 @@
-#bank user_code
-#bank kern_code
+#bank code
 start:
 	jmp r7, baz
 foo:
