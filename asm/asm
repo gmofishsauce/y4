@@ -264,7 +264,7 @@ cat > ${RULES} << 'EOF'
 }
 
 ; Pseudos
-; section switching is #bank user_code or #bank user_data
+; section switching is #bank code or #bank data
 ; labels are automatically aligned (words in user_code, bytes in user_data)
 ; .align is #align <bit-alignment>, e.g. .align 2 is #align 16
 ; .string is #d "string" (or "string\0"). Strings are utf-8

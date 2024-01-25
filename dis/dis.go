@@ -45,7 +45,6 @@ const SRX uint16 = 4 // special, register
 const RRX uint16 = 5 // register, register
 const RXX uint16 = 6 // register
 const XXX uint16 = 7 // no arguments
-const RHI uint16 = 8 // register, imm3, imm7 (jlr only/special case)
 
 // Names of the registers, indexed by field content
 var RegNames []string = []string {
@@ -68,9 +67,9 @@ var KeyTable []KeyEntry = []KeyEntry {
 	{"stw", 3,  0x4000, RRI},
 	{"stb", 3,  0x6000, RRI},
 	{"beq", 3,  0x8000, RRI},
-	{"adi", 3,  0xA000, RRI},
-	{"lui", 3,  0xC000, RJX},
-	{"BUG", 4,  0xE000, RHI}, // special case(s)
+	{"adi", 3,  0xA000, RRI}, // special case(s) in pass 2
+	{"lui", 3,  0xC000, RJX}, // special case(s) in pass 2
+	{"jlr", 4,  0xE000, RRI}, // special case(s) in pass 2
 
 	// 3-operand XOPs
 	{"add", 7,  0xF000, RRR},
@@ -135,63 +134,163 @@ func main() {
 }
 
 // Disassemble an object file. Files written by the assembler currently
-// have no header. They consist of up to four sections: user code (at 0,
-// length 128kB), user data (at 128k in file, length 64kB), kernel code
-// (at 192k in file, length 128kB), and kernel data (at 320k, length 64kB).
-// The disassembler ignores the data segments. It disassembles both code
-// segments with the appropriate pseudo instructions to align them (space
-// them at 0 and 192k). It stops processing the current segment if it sees
-// the illegal opcode 0 (which causes an illegal instruction trap). Since
-// there are no 16-bit immediate values in the ISA, this is reliable.
+// have no header. They consist of up to two sections: code (at 0, length
+// 128kB) and data (at 128k in file, length 64kB). The disassembler does
+// not care whether the file is intended as a kernel or user binary.
+//
+// The disassembler processes the code segment and ignores the data segment.
+// It stops processing if it sees the opcode 0 (which causes an illegal
+// instruction trap when executed). The assembler either writes physical
+// zeroes for part of the segment containing no instructions or seeks over
+// it leaving a *nix file "hole" that reads as zeroes. Since there are no
+// 16-bit immediate values in the ISA and no instructions designed to allow
+// data tables in the code section, zero is a reliable endmarker.
+//
+// Pass 1 produces a list of internal mnemonics. Each corresponds to
+// exactly 1 two-byte instruction in the code section. Some entries in
+// the list are not legal assembly mnemonics, rather more like descriptors.
+// All offsets (e.g. branch offsets) are correct.
+//
+// Disassembler pass 2 replaces some mnemonics in the list (including all
+// the ones that aren't legal in the assembler) with others. It also nulls
+// out (sets to zero length) some mnemonics. This is "sufficient" because
+// some mnemonics expand to 2 (or possibly more) machine instructions, but
+// the opposite ("shrinkage") never occurs. Pass 2 also places labels at
+// every target location detected in pass 1. Finally pass3 prints the list.
 
-const K64 int64 = 64*1024
+const Ki64 int = 64*1024
+const Kp64 int64 = int64(Ki64)
 
 func disassemble(f *os.File) error {
-	if err := disassembleSection(f, 0); err != nil {
-		return fmt.Errorf("user code section: %s", err.Error())
+	var instructions []string
+	var err error
+	if instructions, err = pass1(f); err != nil {
+		return err
 	}
-	if err := disassembleSection(f, 3*K64); err != nil {
-		return fmt.Errorf("kernel code section: %s", err.Error())
+	if err = pass2(f, instructions); err != nil {
+		return err
+	}
+
+	// Print everything in quick format or long format.
+
+	if *qflag {
+		for _, str := range instructions {
+			// don't print instructions
+			// blanked out in pass2().
+			if len(str) > 0 {
+				fmt.Println(str)
+			}
+		}
+		return nil
+	}
+
+	// long format
+	var b []byte = make([]byte, 2, 2) 
+	var inst uint16
+	var at int // instruction index, 0..64k-1
+	var pos int64 // file position, 0..128k-1
+
+	// For instructions like jsr and ldi that are condensed in pass2(),
+	// this loop prints something like:
+	// ...
+	// 1: 0xDFF9:
+    // 2: 0xAFC1: ldi r1, 0xFFFF
+	// ...
+	// where DFF9 is the opcode of the lui and AFC1 is the opcode of the lli (adi) that make
+	// up the 16-bit load (ldi) alias.
+
+	for n, err := f.ReadAt(b, pos); n == 2 && err == nil && at < int(Ki64); n, err = f.ReadAt(b, pos) {
+		if inst = binary.LittleEndian.Uint16(b[:]); inst == 0 {
+			break
+		}
+		fmt.Printf("%5d: 0x%04X: %s\n", at, inst, instructions[at])
+		at++      // instruction index
+		pos += 2  // file position
 	}
 	return nil
 }
 
-func disassembleSection(f *os.File, pos int64) error {
+func pass1(f *os.File) ([]string, error) {
 	var b []byte = make([]byte, 2, 2) 
 	var inst uint16
-	var at int // 16-bit instruction index in section
+	var at int // instruction index, 0..64k-1
+	var pos int64 // file position, 0..128k-1
 	var err error
+	var result []string
 
-	// As we disassemble, we must watch for jmp and jsr. These mnemonics assemble
-	// to an LUI followed by an opcode, called "jlr" in the architecture document,
-	// that doesn't have a separate definition in the assembler; it subsumes the
-	// lui. In this case we don't emit the preceding lui, which we necessarily have
-	// already disassembled. So we have to hold each line, even lui, to see if it's
-	// followed by a jlr (0xEnnn) opcode that subsumes it.
-	var linebuf string
-
-	for n, err := f.ReadAt(b, pos); n == 2 && err == nil && at < int(2*K64); n, err = f.ReadAt(b, pos) {
+	for n, err := f.ReadAt(b, pos); n == 2 && err == nil && at < int(Ki64); n, err = f.ReadAt(b, pos) {
 		if inst = binary.LittleEndian.Uint16(b[:]); inst == 0 {
 			break
 		}
-		if len(linebuf) != 0 && bits(inst,15,12) != 0xE {
-			fmt.Println(linebuf)
-			// else it will be consumed below
-		}
-		if (*qflag) {
-			linebuf = decode(inst, at)
-		} else {
-			linebuf = fmt.Sprintf("%5d: 0x%04X: %s\n", at, inst, decode(inst, at))
-		}
+		result = append(result, decode(inst, at))
 		at++      // instruction index
 		pos += 2  // file position
 	}
 	if err != nil && !errors.Is(err, io.EOF) {
-		return err
+		return []string{}, err
 	}
-	if len(linebuf) != 0 {
-		fmt.Println(linebuf)
+	return result, nil
+}
+
+func pass2(f *os.File, instructions []string) error {
+    var b []byte = make([]byte, 2, 2)
+    var at int // instruction index, 0..64k-1
+    var pos int64 // file position, 0..128k-1
+    var inst uint16
+	var prevInst uint16
+	var luiSeen bool
+
+	for n, err := f.ReadAt(b, pos); n == 2 && err == nil && at < int(Ki64); n, err = f.ReadAt(b, pos) {
+		if inst = binary.LittleEndian.Uint16(b[:]); inst == 0 {
+			break
+		}
+
+		if luiSeen && bits(inst,15,13) == 5 && bits(inst,5,3) == 0 {
+			// lui+adi rT, r0, imm condenses to ldi
+			instructions[at-1] = ""
+			instructions[at] = fmt.Sprintf("ldi %s, 0x%04X",
+				RegNames[bits(inst,2,0)],
+				(bits(prevInst,12,3)<<6) | bits(inst,12,6))
+		} else if luiSeen && bits(inst,15,12) == 0xE && bits(inst,2,0) != 0 {
+			// lui+jlr rT, rB, imm condenses to jmp or jsr where rT != 0
+			instructions[at-1] = ""
+			if bits(inst,5,3) == 0 {
+				instructions[at] = fmt.Sprintf("jsr %s, %d",
+					RegNames[bits(inst,2,0)],
+					(bits(prevInst,12,3)<<6) | bits(inst,12,6))
+			} else if bits(inst,5,3) == 1 {
+				instructions[at] = fmt.Sprintf("jmp %s, %d",
+					RegNames[bits(inst,2,0)],
+					(bits(prevInst,12,3)<<6) | bits(inst,12,6))
+			} else {
+				instructions[at] = fmt.Sprintf("die ; ILLEGAL OPCODE 0x%04X", inst)
+			}
+		} else if bits(inst,15,12) == 0xE && bits(inst,5,0) != 0 {
+			if bits(inst,5,3) == 0 && bits(inst,12,6) == 0 {
+				instructions[at] = fmt.Sprintf("jsr %s", RegNames[bits(inst,2,0)])
+			} else if bits(inst,5,3) == 1 && bits(inst,12,6) == 0 {
+				instructions[at] = fmt.Sprintf("jmp %s", RegNames[bits(inst,2,0)])
+			} else {
+				instructions[at] = fmt.Sprintf("die ; ILLEGAL OPCODE 0x%04X", inst)
+			}
+		} else if bits(inst,15,13) == 5 && bits(inst,5,3) == 0 {
+			// rewrite adi rT, r0, imm not preceded by lui as lli
+			instructions[at] = fmt.Sprintf("lli %s, 0x%02X",
+				RegNames[bits(inst,2,0)], bits(inst,12,6))
+		} else if bits(inst,15,12) == 0xE && bits(inst,5,0) == 0 {
+			// rewrite jlr r0, 0, imm as system call trap
+			instructions[at] = fmt.Sprintf("sys %d", bits(inst,12,6))
+		} else if inst == 0xFFC8 {
+			// rewrite NEG r0 as nop
+			instructions[at] = "nop"
+		}
+
+		luiSeen = bits(inst,15,13) == 6
+		at++      // instruction index
+		pos += 2  // file position
+		prevInst = inst
 	}
+
 	return nil
 }
 
@@ -220,6 +319,7 @@ func decode(op uint16, at int) string {
 	}
 
 	var args string
+	var format string
 	switch found.signature {
 	case RRI:
 		// Special case for computing the branch target. We don't want to emit
@@ -227,14 +327,11 @@ func decode(op uint16, at int) string {
 		imm := bits(op,12,6)
 		if bits(op,15,13) == 4 { // beq
 			imm = uint16((int(imm)+at+1)&0x7F)
-			dbg("### imm = 0x%x at = %d", imm, at)
+			format = "%s, %s, %d"
+		} else {
+			format = "%s, %s, 0x%02X"
 		}
-		args = fmt.Sprintf("%s, %s, 0x%02X",
-			RegNames[bits(op,2,0)], RegNames[bits(op,5,3)], imm)
-	case RHI:
-		// A bit ugly but in this case we have to return the whole instruction
-		// here, rather than just the args.
-		return decodeJLR(op)
+		args = fmt.Sprintf(format, RegNames[bits(op,2,0)], RegNames[bits(op,5,3)], imm)
 	case RJX:
 		args = fmt.Sprintf("%s, 0x%03X", RegNames[bits(op,2,0)], bits(op,12,3))
 	case RRR:
@@ -254,7 +351,7 @@ func decode(op uint16, at int) string {
 
 	return fmt.Sprintf("%s %s", found.name, args)
 }
-
+/*
 func decodeJLR(op uint16) string {
 	if bits(op,12,6) < 64 && (bits(op,12,6)&1) == 0 && bits(op,5,3) == 0 && bits(op,2,0) == 0 {
 		// The immediate is an even number < 64; ra and rb fields are both 0: system call trap
@@ -278,7 +375,7 @@ func decodeJLR(op uint16) string {
 	// or the rb field is > 1 - disassemble as die with a comment containing the opcode
 	return fmt.Sprintf("die ; ILLEGAL OPCODE 0x%04X", op)
 }
-
+*/
 // Hi and lo are inclusive bit numbers - "15,13" is the 3 MS bits of a uint16
 func bits(op uint16, hi uint16, lo uint16) uint16 {
 	b := hi - lo + 1 // if hi, low == 5,3 then b == 3
