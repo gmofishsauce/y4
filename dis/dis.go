@@ -1,5 +1,5 @@
 /*
-Copyright © 2022 Jeff Berkowitz (pdxjjb@gmail.com)
+Copyright © 2024 Jeff Berkowitz (pdxjjb@gmail.com)
 
 This program is free software: you can redistribute it and/or modify it
 under the terms of the GNU Affero General Public License as published
@@ -147,9 +147,9 @@ func main() {
 // data tables in the code section, zero is a reliable endmarker.
 //
 // Pass 1 produces a list of internal mnemonics. Each corresponds to
-// exactly 1 two-byte instruction in the code section. Some entries in
-// the list are not legal assembly mnemonics, rather more like descriptors.
-// All offsets (e.g. branch offsets) are correct.
+// exactly one two-byte instruction in the code section. Some entries in
+// the list, e.g. "jlr", are not legal assembly mnemonics, rather more
+// like descriptors. All offsets (e.g. branch offsets) are correct.
 //
 // Disassembler pass 2 replaces some mnemonics in the list (including all
 // the ones that aren't legal in the assembler) with others. It also nulls
@@ -159,7 +159,6 @@ func main() {
 // every target location detected in pass 1. Finally pass3 prints the list.
 
 const Ki64 int = 64*1024
-const Kp64 int64 = int64(Ki64)
 
 func disassemble(f *os.File) error {
 	var instructions []string
@@ -184,7 +183,7 @@ func disassemble(f *os.File) error {
 		return nil
 	}
 
-	// long format
+	// Print in long format. For this we need to traverse the instructions.
 	var b []byte = make([]byte, 2, 2) 
 	var inst uint16
 	var at int // instruction index, 0..64k-1
@@ -245,45 +244,65 @@ func pass2(f *os.File, instructions []string) error {
 			break
 		}
 
-		if luiSeen && bits(inst,15,13) == 5 && bits(inst,5,3) == 0 {
-			// lui+adi rT, r0, imm condenses to ldi
-			instructions[at-1] = ""
-			instructions[at] = fmt.Sprintf("ldi %s, 0x%04X",
-				RegNames[bits(inst,2,0)],
-				(bits(prevInst,12,3)<<6) | bits(inst,12,6))
-		} else if luiSeen && bits(inst,15,12) == 0xE && bits(inst,2,0) != 0 {
-			// lui+jlr rT, rB, imm condenses to jmp or jsr where rT != 0
-			instructions[at-1] = ""
-			if bits(inst,5,3) == 0 {
-				instructions[at] = fmt.Sprintf("jsr %s, %d",
-					RegNames[bits(inst,2,0)],
-					(bits(prevInst,12,3)<<6) | bits(inst,12,6))
-			} else if bits(inst,5,3) == 1 {
-				instructions[at] = fmt.Sprintf("jmp %s, %d",
+		if bits(inst,15,13) == 5 && bits(inst,5,3) == 0 { // adi rT, r0, imm
+			// If previous was lui, condense to ldi. Otherwise, write as lli.
+			if luiSeen {
+				instructions[at-1] = "" // hide the lui
+				instructions[at] = fmt.Sprintf("ldi %s, 0x%04X",
 					RegNames[bits(inst,2,0)],
 					(bits(prevInst,12,3)<<6) | bits(inst,12,6))
 			} else {
+				instructions[at] = fmt.Sprintf("lli %s, 0x%02X",
+					RegNames[bits(inst,2,0)], bits(inst,12,6))
+			}
+		} else if bits(inst,15,12) == 0xE { // jlr
+			// Replace with sys, jmp, or jsr, depending on the j2:j0 (rA) bits.
+			//
+			// The disassembler assumes the code was written by the assembler.
+			// So if the code builds the upper part of rB without using an lui,
+			// and then does a jmp or jsr with a nonzero immediate, the disassembler
+			// writes out something that cannot be reassembled (since the code
+			// could not have come from assembly mnemonics in the first place).
+			// The disassembler emits the 0xE... opcode as "jlr" in this case.
+
+			rb := bits(inst,5,3)
+			imm := bits(inst,12,6)
+			switch bits(inst,2,0) { // the j2:j0 bits in the rA field
+			case 0: // sys
+				if rb != 0 || imm&1 != 0 {
+					instructions[at] = fmt.Sprintf("die ; ILLEGAL OPCODE 0x%04X", inst)
+				} else {
+					instructions[at] = fmt.Sprintf("sys %d", imm)
+				}
+			case 1: // jsr
+				if luiSeen && rb == bits(prevInst,2,0) {
+					// lui+jlr with j's == 1 becomes jsr rB, target
+					instructions[at-1] = "" // hide the lui
+					instructions[at] = fmt.Sprintf("jsr %s, %d",
+						RegNames[bits(inst,5,3)],
+						(bits(prevInst,12,3)<<6) | bits(inst,12,6))
+				} else if imm == 0 && rb != 0 { // becomes computed jsr rB
+					instructions[at] = fmt.Sprintf("jsr %s", RegNames[bits(inst,5,3)])
+				}
+				// else do nothing - nonstandard sequence to be emitted as jlr
+			case 2: // jmp
+				if luiSeen && rb == bits(prevInst,2,0) {
+					// lui+jlr with j's == 2 becomes jmp rB, target
+					instructions[at-1] = "" // hide the lui
+					instructions[at] = fmt.Sprintf("jmp %s, %d",
+						RegNames[bits(inst,5,3)],
+						(bits(prevInst,12,3)<<6) | bits(inst,12,6))
+				} else if imm == 0 && rb != 0 { // becomes computed jmp rB
+					instructions[at] = fmt.Sprintf("jmp %s", RegNames[bits(inst,5,3)])
+				}
+				// else do nothing - nonstandard sequence to be emitted as jlr
+			default: // illegal
 				instructions[at] = fmt.Sprintf("die ; ILLEGAL OPCODE 0x%04X", inst)
 			}
-		} else if bits(inst,15,12) == 0xE && bits(inst,5,0) != 0 {
-			if bits(inst,5,3) == 0 && bits(inst,12,6) == 0 {
-				instructions[at] = fmt.Sprintf("jsr %s", RegNames[bits(inst,2,0)])
-			} else if bits(inst,5,3) == 1 && bits(inst,12,6) == 0 {
-				instructions[at] = fmt.Sprintf("jmp %s", RegNames[bits(inst,2,0)])
-			} else {
-				instructions[at] = fmt.Sprintf("die ; ILLEGAL OPCODE 0x%04X", inst)
-			}
-		} else if bits(inst,15,13) == 5 && bits(inst,5,3) == 0 {
-			// rewrite adi rT, r0, imm not preceded by lui as lli
-			instructions[at] = fmt.Sprintf("lli %s, 0x%02X",
-				RegNames[bits(inst,2,0)], bits(inst,12,6))
-		} else if bits(inst,15,12) == 0xE && bits(inst,5,0) == 0 {
-			// rewrite jlr r0, 0, imm as system call trap
-			instructions[at] = fmt.Sprintf("sys %d", bits(inst,12,6))
 		} else if inst == 0xFFC8 {
-			// rewrite NEG r0 as nop
-			instructions[at] = "nop"
-		}
+            // rewrite NEG r0 as nop
+            instructions[at] = "nop"
+        }
 
 		luiSeen = bits(inst,15,13) == 6
 		at++      // instruction index
@@ -351,31 +370,7 @@ func decode(op uint16, at int) string {
 
 	return fmt.Sprintf("%s %s", found.name, args)
 }
-/*
-func decodeJLR(op uint16) string {
-	if bits(op,12,6) < 64 && (bits(op,12,6)&1) == 0 && bits(op,5,3) == 0 && bits(op,2,0) == 0 {
-		// The immediate is an even number < 64; ra and rb fields are both 0: system call trap
-		return fmt.Sprintf("sys %d", bits(op,12,6))
-	} else if bits(op,2,0) != 0 && bits(op,5,3) == 0 {
-		// The ra field is nonzero and the rb field is 0: conventional jump and link, called jsr
-		if bits(op,12,6) == 0 {
-			return fmt.Sprintf("jsr %s", RegNames[bits(op,2,0)])
-		} else {
-			return fmt.Sprintf("jsr %s, 0x%04X", RegNames[bits(op,2,0)], bits(op,12,6))
-		}
-	} else if bits(op,2,0) != 0 && bits(op,5,3) == 1 {
-		// The ra field is nonzero and the rb field is 1: conventional jump, called jmp
-		if bits(op,12,6) == 0 {
-			return fmt.Sprintf("jmp %s", RegNames[bits(op,2,0)])
-		} else {
-			return fmt.Sprintf("jmp %s, 0x%04X", RegNames[bits(op,2,0)], bits(op,12,6))
-		}
-	}
-	// It's not one of those cases - maybe it's a sys instruction with an odd offset
-	// or the rb field is > 1 - disassemble as die with a comment containing the opcode
-	return fmt.Sprintf("die ; ILLEGAL OPCODE 0x%04X", op)
-}
-*/
+
 // Hi and lo are inclusive bit numbers - "15,13" is the 3 MS bits of a uint16
 func bits(op uint16, hi uint16, lo uint16) uint16 {
 	b := hi - lo + 1 // if hi, low == 5,3 then b == 3

@@ -227,39 +227,39 @@ cat > ${RULES} << 'EOF'
 
 	; for the instructions below, ms bits of 0b111_0 (0xE) is JLR.
 
-	sys {imm: imm6} => { ; we allow all 32 traps. We may change this.
+	sys {imm: imm6} => { ; system call trap when both ra and rb are 0.
 		i=imm
 		assert(i>=0&&i<64, "sys: 64 > argument >= 0")
 		assert(i&1!=1, "sys: argument must be even")
 		le(0b111_0 @ i`6 @ 0b000 @ 0b000)
 	}
 
-	jsr {ra: reg}, {imm: u16} => {
-		i=ra
+	jsr {rb: reg}, {imm: u16} => { ; jsr rB, target (rB not zero)
+		i=rb
 		assert(i!=0, "r0 not permitted")
 		upper_imm = (imm>>6)&0x3FF   ; imm10
 		lower_imm = (imm&0x3F)`6     ; imm6
-		asm{ lui {ra}, {upper_imm} } @ le(0b111_0 @ lower_imm @ 0b000 @ ra)
+		asm{ lui {rb}, {upper_imm} } @ le(0b111_0 @ lower_imm @ rb @ 0b001)
 	}
 
-	jsr {ra: reg} =>  {
-		i=ra
+	jsr {rb: reg} =>  { ; jsr rB convenince syntax for imm == 0 (no lui)
+		i=rb
 		assert(i!=0, "r0 not permitted")
-		le(0b111_0 @ 0b000_000 @ 0b000 @ ra)
+		le(0b111_0 @ 0b000_000 @ rb @ 0b001)
 	}
 
-	jmp {ra: reg}, {imm: u16} => {
-		i=ra
+	jmp {rb: reg}, {imm: u16} => { ; jmp rB, target (rB not zero)
+		i=rb
 		assert(i!=0, "r0 not permitted")
 		upper_imm = (imm>>6)&0x3FF   ; imm10
 		lower_imm = (imm&0x3F)`6     ; imm6
-		asm{ lui {ra}, {upper_imm} } @ le(0b111_0 @ lower_imm @ 0b001 @ ra)
+		asm{ lui {rb}, {upper_imm} } @ le(0b111_0 @ lower_imm @ rb @ 0b010)
 	}
 
-	jmp {ra: reg} => {
-		i=ra
+	jmp {rb: reg} => { ; jmp rB convenince syntax for imm == 0 (no lui)
+		i=rb
 		assert(i!=0, "r0 not permitted")
-		le(0b111_0 @ 0b000_000 @ 0b001 @ ra)
+		le(0b111_0 @ 0b000_000 @ rb @  0b010)
 	}
 }
 
