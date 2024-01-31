@@ -208,14 +208,24 @@ cat > ${RULES} << 'EOF'
 
 #ruledef ; aliases
 {
-	lli {ra: reg}, {imm: imm7} => asm { adi {ra}, r0, {imm} }
+	; load lower immediate actually add the immediate value to the target
+	; register. Since the immediate is positive, no carry out of the low
+	; six bits occurs. It can be used with lui to form ldi.
+	lli {ra: reg}, {imm: imm6} => asm { adi {ra}, {ra}, {imm} }
 
+	; ldi loads a 16-bit value to the target register via lui ; lli.
 	ldi {ra: reg}, {imm: u16}  => 
 	{
 		upper_imm = (imm>>6)&0x3FF    ; imm10
 		lower_imm = (imm&0x3F)`6      ; imm6
-		asm { lui {ra}, {upper_imm} } @ asm { adi {ra}, r0, {lower_imm} }
+		asm { lui {ra}, {upper_imm} } @ asm { adi {ra}, {ra}, {lower_imm} }
 	}
+
+	; load short immediate adds the zero register to the immediate and 
+	; stores the 16-bit result in the target register. It is useful for
+	; addressing special register and IO spaces, each of which have 64
+	; elements. E.g. lsi r3, 6 ; lio r1, r3 to load IO address 6 to r1.
+	lsi {ra: reg}, {imm: imm6} => asm { adi {ra}, r0, {imm} }
 
 	nop => asm { neg r0 }
 

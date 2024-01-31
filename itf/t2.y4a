@@ -6,7 +6,7 @@ lui r1, 0xFFFF>>6 ; load -1 to r1
 adi r1, r0, 0xFFFF&0x3F
 
 loop:
-adi r7, r0, -2 ; push r1
+;adi r7, r0, -2 ; push r1
 stw r1, r7, 0
 beq r7, r0, cont
 beq r7, r0, loop

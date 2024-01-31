@@ -233,15 +233,29 @@ func condense(at int, prevInst uint16, inst uint16, pInstr *[]string) error {
 	instructions := *pInstr
 	luiSeen := bits(prevInst,15,13) == 6
 
-	if bits(inst,15,13) == 5 && bits(inst,5,3) == 0 { // adi rT, r0, imm
-		// If previous was lui, condense to ldi. Otherwise, write as lli.
-		if luiSeen {
-			instructions[at-1] = "" // hide the lui
-			instructions[at] = fmt.Sprintf("ldi %s, 0x%04X",
-				RegNames[bits(inst,2,0)],
-				(bits(prevInst,12,3)<<6) | bits(inst,12,6))
+	// This first bit handles the messy case of trying to turn adi opcodes in lli or ldi.
+	// We don't try to reconstruct the lsi (load small immediate) and instead disassemble
+	// it as adi rT, r0, 6BitValue. We could have an "lsiSeen" kind of variable and disassemble
+	// the ior, iow, srr, srw aliases, but they're not required (like with jlr) and I'm really
+	// sick of this trixieness.
+	if bits(inst,15,13) == 5 && bits(inst,5,3) == bits(inst,2,0) && bits(inst,2,0) != 0 {
+	   if bits(inst,12,12) == 0 {
+			// It's an lli, adding a positive 7-bit immediate += to rA.
+			// If previous was lui, condense to ldi. Otherwise, write as adi.
+			if luiSeen {
+				instructions[at-1] = "" // hide the lui
+				instructions[at] = fmt.Sprintf("ldi %s, 0x%04X",
+					RegNames[bits(inst,2,0)],
+					(bits(prevInst,12,3)<<6) | bits(inst,12,6))
+			} else {
+				// it's an lli, but without a leading lui. This could be
+				// written as either lli or adi. We write it as lli.
+				instructions[at] = fmt.Sprintf("lli %s, 0x%02X",
+					RegNames[bits(inst,2,0)], bits(inst,12,6))
+			}
 		} else {
-			instructions[at] = fmt.Sprintf("lli %s, 0x%02X",
+			// it's an adi with a negative immediate. This can't be an lli
+			instructions[at] = fmt.Sprintf("adi %s, 0x%02X",
 				RegNames[bits(inst,2,0)], bits(inst,12,6))
 		}
 	} else if bits(inst,15,12) == 0xE { // jlr
