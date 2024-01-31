@@ -41,7 +41,6 @@ type KeyEntry struct {
 const RRI uint16 = 1 // register, register, immediate7
 const RJX uint16 = 2 // register, immediate10
 const RRR uint16 = 3 // register, register, register
-const SRX uint16 = 4 // special, register
 const RRX uint16 = 5 // register, register
 const RXX uint16 = 6 // register
 const XXX uint16 = 7 // no arguments
@@ -81,10 +80,10 @@ var KeyTable []KeyEntry = []KeyEntry {
 	{"xor", 7,  0xFC00, RRR},
 
 	// 2 operand YOPs
-	{"lds", 10, 0xFE00, SRX},
-	{"sts", 10, 0xFE40, SRX},
-	{"rds", 10, 0xFE80, SRX},
-	{"wrs", 10, 0xFEC0, SRX},
+	{"lsp", 10, 0xFE00, RRX},
+	{"ssp", 10, 0xFE40, RRX},
+	{"y02", 10, 0xFE80, RRX},
+	{"y03", 10, 0xFEC0, RRX},
 	{"ior", 10, 0xFF00, RRX},
 	{"iow", 10, 0xFF40, RRX},
 	{"y07", 10, 0xFF80, XXX},
@@ -339,8 +338,6 @@ func decode(op uint16, at int) string {
 	case RRR:
 		args = fmt.Sprintf("%s, %s, %s",
 			RegNames[bits(op,2,0)], RegNames[bits(op,5,3)], RegNames[bits(op,8,6)])
-	case SRX:
-		args = fmt.Sprintf("%s, %s", SprNames[bits(op,2,0)], RegNames[bits(op,5,3)])
 	case RRX:
 		args = fmt.Sprintf("%s, %s", RegNames[bits(op,2,0)], RegNames[bits(op,5,3)])
 	case RXX:

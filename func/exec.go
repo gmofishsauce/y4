@@ -70,13 +70,13 @@ var baseops []xf = []xf{
 }
 
 var yops []xf = []xf {
-	y4.wrs,
-	y4.rds,
-	y4.lds,
-	y4.sts,
-	y4.y04, // unused opcode
+	y4.lsp,
+	y4.ssp,
+	y4.y02,
+	y4.y03,
 	y4.ior,
 	y4.iow,
+	y4.y06,
 	y4.yopFail,
 }
 
@@ -103,42 +103,49 @@ func (y4 *y4machine) ldw() {
 		y4.ex = ExIllegal
 		return
 	}
-	y4.alu = uint16(y4.reg[y4.rb]) + y4.imm
+	reg := y4.reg[y4.mode].gen
+	y4.alu = uint16(reg[y4.rb]) + y4.imm
 	y4.hasStandardWriteback = true
 	// memory operation handled in memory phase
 }
 
 func (y4 *y4machine) ldb() {
-	y4.alu = uint16(y4.reg[y4.rb]) + y4.imm
+	reg := y4.reg[y4.mode].gen
+	y4.alu = uint16(reg[y4.rb]) + y4.imm
 	y4.hasStandardWriteback = true
 	// memory operation handled in memory phase
 }
 
 func (y4 *y4machine) stw() {
-	y4.alu = uint16(y4.reg[y4.rb]) + y4.imm
+	reg := y4.reg[y4.mode].gen
+	y4.alu = uint16(reg[y4.rb]) + y4.imm
 	// no register writeback
 	// memory operation handled in memory phase
 }
 
 func (y4 *y4machine) stb() {
-	y4.alu = uint16(y4.reg[y4.rb]) + y4.imm
+	reg := y4.reg[y4.mode].gen
+	y4.alu = uint16(reg[y4.rb]) + y4.imm
 	// no register writeback
 	// memory operation handled in memory phase
 }
 
 func (y4 *y4machine) beq() {
-	if y4.reg[y4.rb] == y4.reg[y4.ra] {
+	reg := y4.reg[y4.mode].gen
+	if reg[y4.rb] == reg[y4.ra] {
 		y4.pc = word(uint16(y4.pc) + y4.imm)
 	}
 	// no standard register writeback
 }
 
 func (y4 *y4machine) adi() {
-	y4.alu = uint16(y4.reg[y4.rb]) + y4.imm
+	reg := y4.reg[y4.mode].gen
+	y4.alu = uint16(reg[y4.rb]) + y4.imm
 	y4.hasStandardWriteback = true
 }
 
 func (y4 *y4machine) lui() {
+	dbg("lui not shifted - is this right? XXX TODO")
 	y4.alu = y4.imm
 	y4.hasStandardWriteback = true
 }
@@ -146,8 +153,9 @@ func (y4 *y4machine) lui() {
 // xops - 3-operand ALU operations all handled here
 
 func (y4 *y4machine) alu3() {
-	rs2 := uint16(y4.reg[y4.rc])
-	rs1 := uint16(y4.reg[y4.rb])
+	reg := y4.reg[y4.mode].gen
+	rs2 := uint16(reg[y4.rc])
+	rs1 := uint16(reg[y4.rb])
 	y4.hasStandardWriteback = true
 
 	switch (y4.xop) {
@@ -186,23 +194,19 @@ func (y4 *y4machine) alu3() {
 
 // yops
 
-func (y4 *y4machine) wrs() {
+func (y4 *y4machine) lsp() {
 	TODO()
 }
 
-func (y4 *y4machine) rds() {
+func (y4 *y4machine) ssp() {
 	TODO()
 }
 
-func (y4 *y4machine) lds() {
+func (y4 *y4machine) y02() {
 	TODO()
 }
 
-func (y4 *y4machine) sts() {
-	TODO()
-}
-
-func (y4 *y4machine) y04() {
+func (y4 *y4machine) y03() {
 	TODO()
 }
 
@@ -214,10 +218,15 @@ func (y4 *y4machine) iow() {
 	TODO()
 }
 
+func (y4 *y4machine) y06() {
+	TODO()
+}
+
 // zops - 1-operand ALU operations all handled here
 
 func (y4 *y4machine) alu1() {
-	rs1 := uint16(y4.reg[y4.ra])
+	reg := y4.reg[y4.mode].gen
+	rs1 := uint16(reg[y4.ra])
 	y4.hasStandardWriteback = true
 
 	switch y4.zop {
@@ -283,16 +292,16 @@ func (y4 *y4machine) die() {
 }
 
 func (y4 *y4machine) executeSequential() {
-	if y4.isbase {
+	if y4.isBase {
 		baseops[y4.op]()
-	} else if y4.isx {
+	} else if y4.isXop {
 		y4.alu3()
-	} else if y4.isy {
+	} else if y4.isYop {
 		yops[y4.yop]()
-	} else if y4.isz {
+	} else if y4.isZop {
 		y4.alu1()
 	} else {
-		if !y4.isv {
+		if !y4.isVop {
 			y4.decodeFailure("vop")
 		}
 		vops[y4.vop]()

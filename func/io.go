@@ -45,12 +45,17 @@ func pr(s string) {
 	fmt.Fprintln(os.Stderr, "func: " + s)
 }
 
+var dbEnabled bool
+
 func dbg(s string, args... any) {
 	// dbgN(1, ...) is this function
 	dbgN(2, s, args...)
 }
 
 func dbgN(n int, s string, args... any) {
+	if !dbEnabled {
+		return
+	}
     pc, _, _, ok := runtime.Caller(n)
     details := runtime.FuncForPC(pc)
 	where := "???"
@@ -102,6 +107,9 @@ func TODO(args... any) error {
 //
 // This is all temporary and will be replaced by something more reasonable.
 func (y4 *y4machine) load(binPath string) (int, error) {
+	TODO()
+	return 0, nil
+	/*
 	f, err := os.Open(binPath)
 	if err != nil {
 		return 0, err
@@ -161,6 +169,7 @@ func (y4 *y4machine) load(binPath string) (int, error) {
 	}
 	nLoaded += n
 	return nLoaded, nil
+	*/
 }
 
 // Read a chunk of f at offset pos and decode it into either b or w. One of

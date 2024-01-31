@@ -10,10 +10,10 @@ adi r7, r0, -2 ; push r1
 stw r1, r7, 0
 beq r7, r0, cont
 beq r7, r0, loop
-beq r0, r0, loop
+beq r5, r0, loop
 
 cont:
-	add r0, r0, r0
+	add r3, r0, r0
 	adc r1, r1, r1
 	sub r2, r2, r2
 	sbb r3, r3, r3
@@ -21,12 +21,10 @@ cont:
 	bis r5, r5, r5
 	xor r6, r6, r7
 
-	wrs lnk, r0
-	rds lnk, r0
-	lds lnk, r0
-	sts lnk, r0
-	ior r0, r0
-	iow r0, r0
+	lsp r1, r3
+	ssp r1, r4
+	ior r1, r0
+	iow r1, r0
 
 	not r0
 	neg r1

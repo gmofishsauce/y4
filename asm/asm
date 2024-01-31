@@ -109,12 +109,6 @@ cat > ${RULES} << 'EOF'
     r7 => 0o7
 }
 
-#subruledef spr ; special registers
-{
-	pc  => 0o0
-	lnk => 0o1
-}
-
 #subruledef imm6 ; for positive 6-bit immediates in a 7-bit field
 {
 	{imm: i6} => imm
@@ -166,14 +160,14 @@ cat > ${RULES} << 'EOF'
 	xor {ra: reg}, {rb: reg}, {rc: reg}  => le(0xF @ 0b110  @ rc @ rb @ ra)
 }
 
-; All remaining opcodes have 0b1111_111 in the upper seven bits. spr => special register
+; All remaining opcodes have 0b1111_111 in the upper seven bits.
 
 #ruledef ; YOPs are two-register operations.
 {
-	lds {ra: spr}, {rb: reg}  => le(0xF @ 0b111  @ 0b000 @ rb @ ra) ; load special
-	sts {ra: spr}, {rb: reg}  => le(0xF @ 0b111  @ 0b001 @ rb @ ra) ; store special
-	rds {ra: spr}, {rb: reg}  => le(0xF @ 0b111  @ 0b010 @ rb @ ra) ; read special
-	wrs {ra: spr}, {rb: reg}  => le(0xF @ 0b111  @ 0b011 @ rb @ ra) ; write special
+	lsp {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b000 @ rb @ ra) ; load spr rA
+	ssp {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b001 @ rb @ ra) ; store spr rA
+	y02 {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b010 @ rb @ ra)
+	y03 {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b011 @ rb @ ra)
 	ior {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b100 @ rb @ ra)
 	iow {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b101 @ rb @ ra)
 	y07 {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b110 @ rb @ ra)

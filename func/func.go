@@ -28,75 +28,84 @@ var dflag = flag.Bool("d", false, "enable debugging")
 // Functional simulator for y4 instruction set
 
 const K = 1024
-const iosize = 32 // 32 words of i/o space
-const lr = 0 // link register is spr[0]
-const user = 0
-const kern = 1
+const IOSize = 64	// 64 words of I/O space
+const SprSize = 64	// 64 special registers, per Mode
+const PC = 0		// Special register 0 is PC
+const Link = 1		// Special register 1 is Link, per Mode
+const Irr = 2       // Kernel only interrupt return register
+const Icr = 3		// Kernel only interrupt cause register
+const User = 0		// Mode = User
+const Kern = 1		// Mode = Kernel
 
 type word uint16
 
-// Exception types. There can be only a few.
+// Exception types. SYS 0 is unused. The first 16 types
+// correspond to SYS 0 through 15. The second 16 are
+// reserved for hardware injection.
 
-const ExIllegal word = 1 // illegal instruction
-const ExMachine word = 2 // machine check
+const ExIllegal word = 16 // illegal instruction
+const ExMemory word = 24  // Page fault or unaligned access
+const ExMachine word = 31 // machine check
 
 type y4mem struct {
 	imem []word
 	dmem []byte
 }
 
+type y4reg struct {
+	gen []word
+	spr []word
+}
+
 type y4machine struct {
-	cyc uint64   // cycle counter
-	mem []y4mem  // [0] is user space, [1] is kernel
-	reg []word   // registers (r0 must be zero)
-	spr []word   // special registers
-	io  []word	 // i/o space
+	cyc uint64  // cycle counter
+	mem []y4mem // [0] is user space, [1] is kernel
+	reg []y4reg // [0] is user space, [1] is kernel
+	io  []word	// i/o space, accesible only in kernel mode
 	pc word
 
-	// Non-architectural persisted state
-	run bool     // run/stop flag (fake?)
-	mode byte    // current mode, user = 0, kernel = 1
+	// Non-architectural state that persists beyond an instruction
+	ex word		// exception code
+	run bool    // run/stop flag
+	mode byte   // current mode, user = 0, kernel = 1
 
-	// Non-architectual semi-persistent state
-	// This is the longer term "fused instructions" bit
-	hc uint16    // hidden carry bit, 1 or 0
+	// Non-architectural state used within an instruction
+	ir word     // instruction register
+	hc uint16   // hidden carry bit, 1 or 0
 
-	// Non-architectural state set anywhere
-	ex word		 // 0 = no exception, nonzero values TBD
-
-	// Non-architectural per-cycle state set at decode
-	ir word      // instruction register
+	// These variables are a programming convenience
 	op, imm uint16
 	xop, yop, zop, vop uint16
-	isx, isy, isz, isv bool
+	isXop, isYop, isZop, isVop, isBase bool
 	ra, rb, rc uint16
 
-	// Non-architural state set at execute or memory.
+	// Non-architectural state set at execute or memory. These
+	// will evolve into pipeline registers in the future pipelined
+	// simulation.
 	//
 	// The alu result is computed at execution time. If there
 	// is a load or store, it is the address in all cases. If
 	// it's a 16-bit write, the LS bits go at the byte addressed
-	// by the alu value and the MS bits at byte (alu+1) in memory.
-	// This is called "little endian".
+	// by the alu value and the MS bits at byte (alu+1) in memory,
+	// i.e. "little endian".
 	//
 	// If there's a store, the source data is set at execution
 	// time and stored in sd. For a load, the data is placed in
 	// the writeback register (wb) at memory time.
 	//
-	// The instruction result if any if computed at execute time
+	// The instruction result, if any, is computed at execute time
 	// or, if there's a load, at memory time, and placed in the wb
 	// register. The wb register is written to either a general or
 	// special register at writeback time as required by the opcode.
-	alu uint16  // temporary alu result register
+	alu uint16 // temporary alu result register
 	sd word    // memory source data register
 	wb word    // register writeback (instruction result)
 
-	// Assists for the code that may not correspond directly
-	// to anything you'd do in hardware (I think). These are
-	// set at execute or memory time and used at writeback.
+	// These are cleared at fetch time and set during execution as
+	// a programming convenience. The save the effort to recompute
+	// which instructions have writebacks.
 	hasStandardWriteback bool // wb => reg[rA] at writeback
 	hasSpecialWriteback bool  // wb => spr[rB] at writeback
-	isbase bool				  // base op (not xopy, yop, etc.)
 }
 
 var y4 y4machine = y4machine {
@@ -104,21 +113,19 @@ var y4 y4machine = y4machine {
 		{imem: make([]word, 64*K, 64*K), dmem: make([]byte, 64*K, 64*K)}, // user
 		{imem: make([]word, 64*K, 64*K), dmem: make([]byte, 64*K, 64*K)}, // kernel
 	},
-	reg: make([]word, 8, 8),
-	spr: make([]word, 8, 8),
-	io: make([]word, iosize, iosize),
-	pc: 0,
-	cyc: 0,
-	run: false,
-	mode: 0,
-	hc: 0,
+	reg: []y4reg{
+		{gen: make([]word, 8, 8), spr: make([]word, SprSize, SprSize)}, // user
+		{gen: make([]word, 8, 8), spr: make([]word, SprSize, SprSize)}, // kernel
+	},
+	io: make([]word, IOSize, IOSize),
 }
 
 func (y4 *y4machine) reset() {
 	y4.cyc = 0
 	y4.pc = 0
-	y4.mode = kern
 	y4.run = true
+	y4.mode = Kern
+	y4.ex = 0
 }
 
 func main() {
@@ -130,19 +137,23 @@ func main() {
 	if len(args) != 1 {
 		usage()
 	}
+	dbEnabled = *dflag
 	binPath := args[0]
 
 	if n, err = y4.load(binPath); err != nil {
 		fatal(fmt.Sprintf("loading %s: %s", binPath, err.Error()))
 	}
-	pr(fmt.Sprintf("loaded %d bytes", n))
+	dbg("loaded %d bytes", n)
 
 	// reset here in main so that run() can act as "continue" (TBD)`
-	fmt.Println("start")
+	dbg("start")
 	y4.reset()
-	if err = y4.simulate(); err != nil {
-		fatal(fmt.Sprintf("running %s: %s", binPath, err.Error()))
+	err = y4.simulate()
+	if err != nil {
+		fatal(fmt.Sprintf("error: running %s: %s", binPath, err.Error()))
+		os.Exit(2)
 	}
+	dbg("done")
 }
 
 // Run the simulator. There must already be something loaded in imem.
@@ -208,9 +219,9 @@ func (y4 *y4machine) sxtImm() uint16 {
 	return result
 }
 
-// Fetch next instruction into ir. Future: MMU page faults.
+// Fetch next instruction into ir.
 func (y4 *y4machine) fetch() {
-	y4.ex = 0	// I don't know if we should clear these ... hides bugs?
+	y4.ex = 0
 	y4.alu = 0
 	y4.sd = 0
 	y4.wb = 0
@@ -242,11 +253,11 @@ func (y4 *y4machine) decode() {
 	y4.zop = y4.ir.bits(5,3)
 	y4.vop = y4.ir.bits(2,0)
 
-	y4.isv = y4.ir.bits(15,3) == 0x1FFF
-	y4.isz = !y4.isv && y4.ir.bits(15,6) == 0x03FF
-	y4.isy = !y4.isv && !y4.isz && y4.ir.bits(15,9) == 0x007F
-	y4.isx = !y4.isv && !y4.isz && !y4.isy && y4.ir.bits(15,12) == 0x000F
-	y4.isbase = !y4.isv && !y4.isz && !y4.isy && !y4.isv
+	y4.isVop = y4.ir.bits(15,3) == 0x1FFF
+	y4.isZop = !y4.isVop && y4.ir.bits(15,6) == 0x03FF
+	y4.isYop = !y4.isVop && !y4.isZop && y4.ir.bits(15,9) == 0x007F
+	y4.isXop = !y4.isVop && !y4.isZop && !y4.isYop && y4.ir.bits(15,12) == 0x000F
+	y4.isBase = !y4.isVop && !y4.isZop && !y4.isYop && !y4.isXop
 
 	y4.ra = y4.vop
 	y4.rb = y4.zop
@@ -261,9 +272,10 @@ func (y4 *y4machine) execute() {
 	y4.executeSequential()
 }
 
-// For instructions that reference memory, do the memory operation.
-// The computed address is in the alu (alu result) register and the
-// execute phase must also have loaded the store data register.
+// For instructions that reference memory, special register space,
+// or I/O space, do the operation. The computed address is in the alu
+// (alu result) register and the execute phase must also have loaded
+// the store data register.
 //
 // Note that this modifies memory and it's not in the writeback phase.
 // Fine for this sequential implementation, but would seem to be an
@@ -277,7 +289,8 @@ func (y4 *y4machine) memory() {
 		return
 	}
 
-	mem := &y4.mem[y4.mode] // user or kernel
+	mem := &y4.mem[y4.mode]
+	reg := &y4.reg[y4.mode]
 	if y4.op < 4 { // general register load or store
 		switch y4.op { // no default
 		case 0:  // ldw
@@ -291,19 +304,16 @@ func (y4 *y4machine) memory() {
 		case 3:  // stb
 			mem.dmem[y4.alu] = byte(y4.sd & 0x00FF)
 		}
-	} else if y4.isy { // special load or store, io
-		// FIXME the yop's will be renumbered XXX
+	} else if y4.isYop { // special register load or store, io
 		switch y4.yop { // no default
-		case 2: // lds (load special)
-			y4.wb = word(mem.dmem[y4.alu])
-			y4.wb |= word(mem.dmem[y4.alu+1]) << 8
-		case 3: // sts (store special)
-			mem.dmem[y4.alu] = byte(y4.sd & 0x00FF)
-			mem.dmem[y4.alu+1] = byte(y4.sd >> 8)
-		case 5: // ior 
-			y4.wb = y4.io[y4.alu&(iosize-1)]
-		case 6: // iow
-			y4.io[y4.alu] = y4.sd
+		case 0: // lsp (load special)
+			y4.wb = reg.spr[y4.alu&(SprSize-1)]
+		case 1: // ssp (store special)
+			reg.spr[y4.alu&(SprSize-1)] = y4.sd
+		case 4: // ior 
+			y4.wb = y4.io[y4.alu&(IOSize-1)]
+		case 5: // iow
+			y4.io[y4.alu&(IOSize-1)] = y4.sd
 		}
 	} else {
 		// the remaining instructions may or may not
@@ -317,6 +327,8 @@ func (y4 *y4machine) memory() {
 // Write the result (including possible memory result) to a register.
 // Stores and io writes are handled at memory time.
 func (y4 *y4machine) writeback() {
+	fmt.Println("RECHECK WRITEBACK VERY CAREFULLY ITS ALL WRONG")
+	TODO()
 	if y4.ex != 0 { // exception pending
 		return
 	}
@@ -328,16 +340,15 @@ func (y4 *y4machine) writeback() {
 		y4.op == 1 ||  // ldb
 		y4.op == 5 ||  // adi
 		y4.op == 6 ||  // lui
-		y4.isx ||      // 3-operand alu
-		(y4.isy && y4.yop == 5) ||  // ior
-		y4.isz {       // single operand alu
-
-		if y4.ra != 0 {
-			y4.reg[y4.ra] = y4.wb
-		}
-	} else if y4.isy && (y4.yop == 1 || y4.yop == 2) {
+		y4.isXop ||      // 3-operand alu
+		(y4.isYop && y4.yop == 5) ||  // ior
+		y4.isZop {       // single operand alu
+			//if y4.ra != 0 {  FIX SYNTAX
+			//	y4.reg[y4.ra] = y4.wb
+			//}
+	} else if y4.isYop && (y4.yop == 1 || y4.yop == 2) {
 		// lds, rds
-		y4.spr[y4.rb] = y4.wb
+		// y4.spr[y4.rb] = y4.wb FIX SYNTAX
 	}
 }
 
@@ -352,16 +363,18 @@ func (y4 *y4machine) dump() {
 	fmt.Printf("Run %t mode %s cycle %d alu = 0x%04X pc = %d exception = 0x%04X\n",
 		y4.run, modeName, y4.cyc, y4.alu, y4.pc, y4.ex)
 
+	reg := &y4.reg[y4.mode] // user or kernel
 	headerFormat := "%12s: "
 	fmt.Printf(headerFormat, "reg")
-	for i := range y4.reg {
-		fmt.Printf("%04X%s", y4.reg[i], spOrNL(i < len(y4.reg)-1))
+	for i := range reg.gen {
+		fmt.Printf("%04X%s", reg.gen[i], spOrNL(i < len(y4.reg)-1))
 	}
 
-	fmt.Printf(headerFormat, "spr")
-	for i := range y4.spr {
-		fmt.Printf("%04X%s", y4.spr[i], spOrNL(i < len(y4.reg)-1))
-	}
+	TODO() // there are 64 SPRs now, need to figure out what to do here.
+	//fmt.Printf(headerFormat, "spr")
+	//for i := range y4.spr {
+	//	fmt.Printf("%04X%s", y4.spr[i], spOrNL(i < len(y4.reg)-1))
+	//}
 
 	mem := &y4.mem[y4.mode] // user or kernel
 	off := int(y4.pc & 0xFFF8)
