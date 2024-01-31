@@ -162,15 +162,15 @@ cat > ${RULES} << 'EOF'
 
 ; All remaining opcodes have 0b1111_111 in the upper seven bits.
 
-#ruledef ; YOPs are two-register operations.
+#ruledef ; YOPs are two-register operations affecting special registers and IO.
 {
-	lsp {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b000 @ rb @ ra) ; load spr rA
-	ssp {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b001 @ rb @ ra) ; store spr rA
-	y02 {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b010 @ rb @ ra)
-	y03 {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b011 @ rb @ ra)
-	ior {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b100 @ rb @ ra)
-	iow {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b101 @ rb @ ra)
-	y07 {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b110 @ rb @ ra)
+	lsp {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b000 @ rb @ ra) ; load rA from SPR@rb
+	lio {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b001 @ rb @ ra) ; load rA from IO@rb
+	ssp {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b010 @ rb @ ra) ; store rA to SPR@rb
+	sio {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b011 @ rb @ ra) ; store rA to IO@rb
+	y04 {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b100 @ rb @ ra)
+	y05 {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b101 @ rb @ ra)
+	y06 {ra: reg}, {rb: reg}  => le(0xF @ 0b111  @ 0b110 @ rb @ ra)
 }
 
 ; All remaining instructions have 1's in the top 10 bits.
@@ -255,6 +255,23 @@ cat > ${RULES} << 'EOF'
 		assert(i!=0, "r0 not permitted")
 		le(0b111_0 @ 0b000_000 @ rb @  0b010)
 	}
+
+	ior {ra: reg}, {rb: reg}, {imm: imm6} => { ; io register read
+		asm{ lli {rb}, {imm} } @ asm{ lio {ra}, {rb} }
+	}
+
+	iow {ra: reg}, {rb: reg}, {imm: imm6} => { ; io register write
+		asm{ lli {rb}, {imm} } @ asm{ sio {ra}, {rb} }
+	}
+
+	srr {ra: reg}, {rb: reg}, {imm: imm6} => { ; special register read
+		asm{ lli {rb}, {imm} } @ asm{ lsp {ra}, {rb} }
+	}
+
+	srw {ra: reg}, {rb: reg}, {imm: imm6} => { ; special register write
+		asm{ lli {rb}, {imm} } @ asm{ ssp {ra}, {rb} }
+	}
+
 }
 
 ; Pseudos

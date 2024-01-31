@@ -23,8 +23,13 @@ cont:
 
 	lsp r1, r3
 	ssp r1, r4
-	ior r1, r0
-	iow r1, r0
+	lio r1, r0
+	lio r1, r0
+
+	ior r4, r5, 8
+	iow r4, r5, 8
+	srr r4, r5, 8
+	srw r4, r5, 8
 
 	not r0
 	neg r1

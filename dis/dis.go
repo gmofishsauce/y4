@@ -81,12 +81,12 @@ var KeyTable []KeyEntry = []KeyEntry {
 
 	// 2 operand YOPs
 	{"lsp", 10, 0xFE00, RRX},
-	{"ssp", 10, 0xFE40, RRX},
-	{"y02", 10, 0xFE80, RRX},
-	{"y03", 10, 0xFEC0, RRX},
-	{"ior", 10, 0xFF00, RRX},
-	{"iow", 10, 0xFF40, RRX},
-	{"y07", 10, 0xFF80, XXX},
+	{"lio", 10, 0xFE40, RRX},
+	{"ssp", 10, 0xFE80, RRX},
+	{"sio", 10, 0xFEC0, RRX},
+	{"y04", 10, 0xFF00, RRX},
+	{"y06", 10, 0xFF40, RRX},
+	{"y06", 10, 0xFF80, XXX},
 
 	// 1 operand ZOPs
 	{"not", 13, 0xFFC0, RXX},
