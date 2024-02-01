@@ -71,23 +71,23 @@ var baseops []xf = []xf{
 
 var yops []xf = []xf {
 	y4.lsp,
+	y4.lio,
 	y4.ssp,
-	y4.y02,
-	y4.y03,
-	y4.ior,
-	y4.iow,
+	y4.sio,
+	y4.y04,
+	y4.y05,
 	y4.y06,
 	y4.yopFail,
 }
 
 var vops []xf = []xf {
-	y4.sys,
-	y4.srt,
-	y4.v02, // unused opcode
-	y4.v03, // unused opcode
+	y4.rti,
 	y4.rtl,
+	y4.di,
+	y4.ei,
 	y4.hlt,
 	y4.brk,
+	y4.v06,
 	y4.die,
 }
 
@@ -145,7 +145,6 @@ func (y4 *y4machine) adi() {
 }
 
 func (y4 *y4machine) lui() {
-	dbg("lui not shifted - is this right? XXX TODO")
 	y4.alu = y4.imm
 	y4.hasStandardWriteback = true
 }
@@ -195,31 +194,43 @@ func (y4 *y4machine) alu3() {
 // yops
 
 func (y4 *y4machine) lsp() {
-	TODO()
+	reg := y4.reg[y4.mode].gen
+	y4.alu = uint16(reg[y4.rb]) + y4.imm
+	y4.hasStandardWriteback = true
+	// memory operation handled in memory phase
+}
+
+func (y4 *y4machine) lio() {
+	reg := y4.reg[y4.mode].gen
+	y4.alu = uint16(reg[y4.rb]) + y4.imm
+	y4.hasStandardWriteback = true
+	// memory operation handled in memory phase
 }
 
 func (y4 *y4machine) ssp() {
-	TODO()
+	reg := y4.reg[y4.mode].gen
+	y4.alu = uint16(reg[y4.rb]) + y4.imm
+	// no register writeback
+	// memory operation handled in memory phase
 }
 
-func (y4 *y4machine) y02() {
-	TODO()
+func (y4 *y4machine) sio() {
+	reg := y4.reg[y4.mode].gen
+	y4.alu = uint16(reg[y4.rb]) + y4.imm
+	// no register writeback
+	// memory operation handled in memory phase
 }
 
-func (y4 *y4machine) y03() {
-	TODO()
+func (y4 *y4machine) y04() {
+	y4.ex = ExIllegal
 }
 
-func (y4 *y4machine) ior() {
-	TODO()
-}
-
-func (y4 *y4machine) iow() {
-	TODO()
+func (y4 *y4machine) y05() {
+	y4.ex = ExIllegal
 }
 
 func (y4 *y4machine) y06() {
-	TODO()
+	y4.ex = ExIllegal
 }
 
 // zops - 1-operand ALU operations all handled here
@@ -259,23 +270,19 @@ func (y4 *y4machine) alu1() {
 
 // vops - 0 operand instructions
 
-func (y4 *y4machine) sys() {
-	TODO()
-}
-
-func (y4 *y4machine) srt() {
-	TODO()
-}
-
-func (y4 *y4machine) v02() {
-	TODO()
-}
-
-func (y4 *y4machine) v03() {
+func (y4 *y4machine) rti() {
 	TODO()
 }
 
 func (y4 *y4machine) rtl() {
+	y4.pc = y4.reg[y4.mode].spr[1]
+}
+
+func (y4 *y4machine) di() {
+	TODO()
+}
+
+func (y4 *y4machine) ei() {
 	TODO()
 }
 
@@ -285,6 +292,10 @@ func (y4 *y4machine) hlt() {
 
 func (y4 *y4machine) brk() {
 	TODO()
+}
+
+func (y4 *y4machine) v06() {
+	y4.ex = ExIllegal
 }
 
 func (y4 *y4machine) die() {
