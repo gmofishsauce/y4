@@ -23,7 +23,10 @@ import (
 	"os"
 )
 
+// The WUT-4 boots in kernel mode, so the kernel binary is mandatory.
+// A user mode binary is optional.
 var dflag = flag.Bool("d", false, "enable debugging")
+var uflag = flag.String("u", "", "user binary")
 
 // Functional simulator for y4 instruction set
 
@@ -134,27 +137,29 @@ func (y4 *y4machine) reset() {
 
 func main() {
 	var err error
-	var n int
 
 	flag.Parse()
 	args := flag.Args()
-	if len(args) != 1 {
-		usage()
-	}
-	dbEnabled = *dflag
-	binPath := args[0]
+    if len(args) != 1 { // kernel mode binary file is mandatory
+        usage()
+    }
 
-	if n, err = y4.load(binPath); err != nil {
-		fatal(fmt.Sprintf("loading %s: %s", binPath, err.Error()))
+    dbEnabled = *dflag
+	if err := y4.load(Kern, args[0]); err != nil {
+		fatal(fmt.Sprintf("loading %s: %s", args[0], err.Error()))
 	}
-	dbg("loaded %d bytes", n)
+	if len(*uflag) != 0 {
+		if err := y4.load(User, *uflag); err != nil {
+			fatal(fmt.Sprintf("loading %s: %s", *uflag, err.Error()))
+		}
+	}
 
 	// reset here in main so that run() can act as "continue" (TBD)`
 	dbg("start")
 	y4.reset()
 	err = y4.simulate()
 	if err != nil {
-		fatal(fmt.Sprintf("error: running %s: %s", binPath, err.Error()))
+		fatal(fmt.Sprintf("error: running %s: %s", args[0], err.Error()))
 		os.Exit(2)
 	}
 	dbg("done")
@@ -371,24 +376,24 @@ func (y4 *y4machine) dump() {
 	headerFormat := "%12s: "
 	fmt.Printf(headerFormat, "reg")
 	for i := range reg.gen {
-		fmt.Printf("%04X%s", reg.gen[i], spOrNL(i < len(y4.reg)-1))
+		fmt.Printf("%04X%s", reg.gen[i], spOrNL(i < len(reg.gen)-1))
 	}
 
 	// For now, just print both the first 8 user and kernel sprs
 	fmt.Printf(headerFormat, "user spr")
 	for i := 0; i < 8; i++ {
-		fmt.Printf("%04X%s", y4.reg[0].spr[i], spOrNL(i < 8))
+		fmt.Printf("%04X%s", y4.reg[0].spr[i], spOrNL(i < 7))
 	}
 	fmt.Printf(headerFormat, "kern spr")
 	for i := 0; i < 8; i++ {
-		fmt.Printf("%04X%s", y4.reg[1].spr[i], spOrNL(i < 8))
+		fmt.Printf("%04X%s", y4.reg[1].spr[i], spOrNL(i < 7))
 	}
 
 	mem := &y4.mem[y4.mode] // user or kernel
 	off := int(y4.pc & 0xFFF8)
 	fmt.Printf(headerFormat, fmt.Sprintf("imem@0x%04X", off))
 	for i := 0; i < 8; i++ {
-		fmt.Printf("%04X%s", mem.imem[off+i], spOrNL(i < len(y4.reg)-1))
+		fmt.Printf("%04X%s", mem.imem[off+i], spOrNL(i < 7))
 	}
 	
 	// The memory address, if there is one, always comes from the ALU
@@ -397,7 +402,7 @@ func (y4 *y4machine) dump() {
 	off = int(y4.alu & 0xFFF8)
 	fmt.Printf(headerFormat, fmt.Sprintf("dmem@0x%04X", off))
 	for i := 0; i < 8; i++ {
-		fmt.Printf("%04X%s", mem.dmem[off+i], spOrNL(i < len(y4.reg)-1))
+		fmt.Printf("%04X%s", mem.dmem[off+i], spOrNL(i < 7))
 	}
 }
 
@@ -409,7 +414,7 @@ func spOrNL(sp bool) string {
 }
 
 func usage() {
-	pr("Usage: func [options] y4-binary\nOptions:")
+	pr("Usage: func [options] kernel-binary\nOptions:")
 	flag.PrintDefaults()
 	os.Exit(1)
 }

@@ -87,32 +87,16 @@ func TODO(args... any) error {
 }
 
 // For now, we accept the output of customasm directly. The bin file has
-// no file header. There are between 1 and 4 sections in this order: user
-// code, user data (if any), kernel code (if any) and kernel data (if any).
-// Each section is full length if it's followed by other sections, else
-// it's truncated to the length required to hold whatever is there. The
-// full section lengths are 128kb for the code sections and 64kb for the
-// data sections.
-//
-// So if the file length is ... then we need to load ...
-//
-//                       <= 128k                user code only
-//                       <= 192k                user code and data
-//                       <= 320k                plus kernel code
-//                       <= 384k                plus kernel data
-//
-// If it's bigger than that, we report an error because we're confused.
-// Note that there might not be any user code or data, for example, but
-// by convention the file still has full-length sections.
-//
-// This is all temporary and will be replaced by something more reasonable.
-func (y4 *y4machine) load(binPath string) (int, error) {
-	TODO()
-	return 0, nil
-	/*
+// no file header. There are 1 or 2 sections in the file. Code is at file
+// offset 0 for a maximum length of 64k 2-byte words. Initialized Data,
+// if present, is at offset 128 kiB for a maximum length of 64kibB. Since
+// the machine initializes in kernel mode, kernel code is mandatory; this
+// is handled in main(). If a user mode binary is present for this simulation
+// run, it results in a second call to this function.
+func (y4 *y4machine) load(mode int, binPath string) error {
 	f, err := os.Open(binPath)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	defer f.Close()
 
@@ -121,55 +105,26 @@ func (y4 *y4machine) load(binPath string) (int, error) {
 	// partial read at the end of the file based on error types is messy. 
 
 	var buf []byte = make([]byte, 64*K, 64*K)
-	var nLoaded int
 	var n int
 
-	if n, err = readChunk(f, buf, 0, nil, y4.mem[user].imem[0:64*K/2]); err != nil {
-		return 0, err
+	if n, err = readChunk(f, buf, 0, nil, y4.mem[mode].imem[0:64*K/2]); err != nil {
+		return err
 	}
-	nLoaded += n
 	if n < len(buf) {
-		return nLoaded, nil
+		return nil
 	}
 
-	if n, err = readChunk(f, buf, 64*K, nil, y4.mem[user].imem[64*K/2:64*K]); err != nil {
-		return 0, err
+	if n, err = readChunk(f, buf, 64*K, nil, y4.mem[mode].imem[64*K/2:64*K]); err != nil {
+		return err
 	}
-	nLoaded += n
 	if n < len(buf) {
-		return nLoaded, nil
+		return nil
 	}
 
-	if n, err = readChunk(f, buf, 128*K, y4.mem[user].dmem[0:64*K], nil); err != nil {
-		return 0, err
+	if n, err = readChunk(f, buf, 128*K, y4.mem[mode].dmem[0:64*K], nil); err != nil {
+		return err
 	}
-	nLoaded += n
-	if n < len(buf) {
-		return nLoaded, nil
-	}
-
-	if n, err = readChunk(f, buf, 192*K, nil, y4.mem[kern].imem[0:64*K/2]); err != nil {
-		return 0, err
-	}
-	nLoaded += n
-	if n < len(buf) {
-		return nLoaded, nil
-	}
-
-	if n, err = readChunk(f, buf, 256*K, nil, y4.mem[kern].imem[64*K/2:64*K]); err != nil {
-		return 0, err
-	}
-	nLoaded += n
-	if n < len(buf) {
-		return nLoaded, nil
-	}
-
-	if n, err = readChunk(f, buf, 320*K, y4.mem[kern].dmem[0:64*K], nil); err != nil {
-		return 0, err
-	}
-	nLoaded += n
-	return nLoaded, nil
-	*/
+	return nil
 }
 
 // Read a chunk of f at offset pos and decode it into either b or w. One of
