@@ -72,6 +72,7 @@ type y4machine struct {
 
 	// Non-architectural state that persists beyond an instruction
 	run bool    // run/stop flag
+	en bool     // true if interrupts are enabled
 	mode byte   // current mode, user = 0, kernel = 1
 
 	// Non-architectural state used within an instruction
@@ -177,16 +178,15 @@ func (y4 *y4machine) simulate() error {
 	// converting this to a pipelined simulation easier in the future.
 
 	for ; y4.run ; y4.cyc++ {
-		if y4.ex != 0 {
-			// All exceptions cause aborts for now.
-			fmt.Printf("exception %d\n", y4.ex)
-			break
-		}
 		y4.fetch()
 		y4.decode()
 		y4.execute()
 		y4.memory()
 		y4.writeback()
+		if y4.ex != 0 && !y4.en {
+			fmt.Printf("double fault: exception %d\n", y4.ex)
+			break
+		}
 		if *dflag {
 			y4.dump()
 			var toss []byte = []byte{0}
@@ -241,6 +241,7 @@ func (y4 *y4machine) fetch() {
 
 	mem := &y4.mem[y4.mode]
 	y4.ir = mem.imem[y4.pc]
+	dbg(fmt.Sprintf("fetched 0x%04X at 0x%d", y4.ir, y4.pc))
 
 	// Control flow instructions will overwrite this at the writeback stage.
 	// This implementation is sequential (does everything each clock cycle).
@@ -269,6 +270,9 @@ func (y4 *y4machine) decode() {
 	y4.isYop = !y4.isVop && !y4.isZop && y4.ir.bits(15,9) == 0x007F
 	y4.isXop = !y4.isVop && !y4.isZop && !y4.isYop && y4.ir.bits(15,12) == 0x000F
 	y4.isBase = !y4.isVop && !y4.isZop && !y4.isYop && !y4.isXop
+
+	dbg(fmt.Sprintf("ir 0x%04X isVop=%v isZop=%v isYop=%v isXop=%v isBase=%v",
+		y4.ir, y4.isVop, y4.isZop, y4.isYop, y4.isXop, y4.isBase))
 
 	y4.ra = y4.vop
 	y4.rb = y4.zop

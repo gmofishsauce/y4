@@ -1,6 +1,0 @@
-#!/bin/bash
-#
-# Run Source - assemble and execute
-
-../asm/asm $1
-./func -d y4.out

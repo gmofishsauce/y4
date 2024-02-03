@@ -66,7 +66,7 @@ var baseops []xf = []xf{
 	y4.beq,
 	y4.adi,
 	y4.lui,
-	y4.baseFail,
+	y4.jlr,
 }
 
 var yops []xf = []xf {
@@ -147,6 +147,40 @@ func (y4 *y4machine) adi() {
 func (y4 *y4machine) lui() {
 	y4.alu = y4.imm
 	y4.hasStandardWriteback = true
+}
+
+func (y4 *y4machine) jlr() {
+	// the jlr opcode has bits [15..13] == 0b111, just like xops.
+	// It's a jlr, not an xop, because bit 12, the MS bit of the
+	// immediate value, has to be a 0. The decoder is supposed to
+	// take care of this, but for sanity, we check here.
+	if y4.ir.bits(15,12) != 0xE {
+		y4.baseFail() // internal error
+	}
+
+	// There are three flavors, determined by the rA field, which
+	// is overloaded as additional opcode bits here.
+	switch y4.ra {
+	case 0: // sys trap
+		if y4.rb != 0 || y4.imm&1 == 1 || y4.imm > 30 {
+			// The first 16 traps, represented by values 0..30, are
+			// legal instructions. 32..62 are reserved for hardware.
+			y4.ex = ExIllegal
+			return
+		}
+		y4.mode = Kern
+		y4.reg[y4.mode].spr[Irr] = y4.pc
+		y4.pc = word(y4.imm)
+	case 1: // jump and link
+		y4.reg[y4.mode].spr[Link] = y4.pc
+		y4.pc = word(uint16(y4.reg[y4.mode].gen[y4.rb]) + y4.imm)
+	case 2: // jump
+		y4.pc = word(uint16(y4.reg[y4.mode].gen[y4.rb]) + y4.imm)
+	default:
+		y4.ex = ExIllegal
+	}
+	y4.hasStandardWriteback = false
+	y4.hasSpecialWriteback = false
 }
 
 // xops - 3-operand ALU operations all handled here

@@ -1,2 +1,38 @@
-; Simulation program 0
-die ; illegal instruction trap
+; kernel - loads a 0 in kernel space
+#bank code
+
+; 32 vectors - all jump to the same label for now
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+	jmp r5, trap
+trap:
+	die
