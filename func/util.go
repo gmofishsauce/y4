@@ -2,7 +2,7 @@ package main
 
 /*
 Author: Jeff Berkowitz
-Copyright (C) 2023 Jeff Berkowitz
+Copyright (C) 2024 Jeff Berkowitz
 
 This file is part of func.
 
@@ -23,67 +23,47 @@ along with this program. If not, see http://www.gnu.org/licenses/.
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"io"
 	"os"
-	"runtime"
-	"runtime/debug"
 )
 
-func assert(b bool, msg string) {
-	if !b {
-		panic("assertion failure: " + msg)
+// Get the bits from hi:lo inclusive as a small uint16
+// Example: w := 0xFDFF ; w.bits(10,8) == uint16(5)
+func (w word) bits(hi int, lo int) uint16 {
+	return uint16(w>>lo) & uint16(1<<(hi-lo+1)-1)
+}
+
+// Reset the simulated hardware
+func (y4 *y4machine) reset() {
+	y4.cyc = 0
+	y4.pc = 0
+	y4.run = true
+	y4.mode = Kern
+	y4.ex = 0
+	y4.en = false
+}
+
+// Decode a sign extended 10 or 7 bit immediate value from the current
+// instruction. If the instruction doesn't have an immediate value, then
+// the rest of the decode shouldn't try to use it so the return value is
+// not important. In this case return the most harmless value, 0.
+func (y4 *y4machine) sxtImm() uint16 {
+	var result uint16
+	ir := y4.ir
+	op := ir.bits(15,13)
+	neg := ir.bits(12,12) != 0
+	if op < 6 { // ldw, ldb, stw, stb, beq, adi all have 7-bit immediates
+		result = ir.bits(12,6)
+		if neg {
+			result |= 0xFF80
+		}
+	} else if op == 6 { // lui has a 10-bit immediate, upper bits
+		result = ir.bits(12, 3) << 6
+	} else if op == 7 && !neg { // jlr - 7-bit immediate if positive
+		result = ir.bits(12,6)
 	}
-}
-
-func fatal(s string) {
-	pr(s)
-	os.Exit(2)
-}
-
-func pr(s string) {
-	fmt.Fprintln(os.Stderr, "func: " + s)
-}
-
-var dbEnabled bool
-
-func dbg(s string, args... any) {
-	// dbgN(1, ...) is this function
-	dbgN(2, s, args...)
-}
-
-func dbgN(n int, s string, args... any) {
-	if !dbEnabled {
-		return
-	}
-    pc, _, _, ok := runtime.Caller(n)
-    details := runtime.FuncForPC(pc)
-	where := "???"
-    if ok && details != nil {
-		where = details.Name()
-    }
-	s = "[at " + where + "]: " + s + "\n"
-	fmt.Fprintf(os.Stderr, s, args...)
-}
-
-func dbgST() {
-	debug.PrintStack()
-}
-
-var todoDone = make(map[string]bool)
-
-// This function prints the callers name and TODO once per
-// execution of the calling program. Arguments are ignored
-// and are provided to make reference to unreference variables
-// in a partially completely implementation.
-func TODO(args... any) error {
-	pc, _, _, ok := runtime.Caller(1)
-    details := runtime.FuncForPC(pc)
-    if ok && details != nil && !todoDone[details.Name()] {
-        dbg("TODO called from %s", details.Name())
-		todoDone[details.Name()] = true
-    }
-	return nil
+	// else bits(15,12) == 0xF and the instruction has no immediate value
+	return result
 }
 
 // For now, we accept the output of customasm directly. The bin file has

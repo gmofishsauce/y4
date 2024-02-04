@@ -21,6 +21,149 @@ import (
 	"fmt"
 )
 
+// Fetch next instruction into ir.
+func (y4 *y4machine) fetch() {
+	// Clear the state set during execution and used at writeback.
+	// The state set during decode is taken care of there.
+	y4.alu = 0
+	y4.sd = 0
+	y4.wb = 0
+	// This one is more complicated. May remove this when IFTEs are
+	// fully implemented.
+	y4.ex = 0
+
+	mem := &y4.mem[y4.mode]
+	y4.ir = mem.imem[y4.pc]
+	dbg(fmt.Sprintf("fetched 0x%04X at 0x%04X", y4.ir, y4.pc))
+
+	// Control flow instructions will overwrite this at the writeback stage.
+	// This implementation is sequential (does everything each clock cycle).
+	y4.pc++
+	if y4.pc == 0 {
+		y4.ex = ExMachine // machine check - PC wrapped		
+	}
+}
+
+// Pull out all the possible distinct field types into uint16s. The targets
+// (op, i7, yop, etc.) are all non-architectural per-cycle and mostly mean
+// e.g. multiplexer outputs in hardware. The remaining stages can act on the
+// decoded values. Plausible additional decoding (which instructions have
+// targets? Which target special registers?) is left to the execution code.
+func (y4 *y4machine) decode() {
+	y4.op = y4.ir.bits(15,13)	// base opcode
+	y4.imm = y4.sxtImm()
+
+	y4.xop = y4.ir.bits(11,9)
+	y4.yop = y4.ir.bits(8,6)
+	y4.zop = y4.ir.bits(5,3)
+	y4.vop = y4.ir.bits(2,0)
+
+	y4.isVop = y4.ir.bits(15,3) == 0x1FFF
+	y4.isZop = !y4.isVop && y4.ir.bits(15,6) == 0x03FF
+	y4.isYop = !y4.isVop && !y4.isZop && y4.ir.bits(15,9) == 0x007F
+	y4.isXop = !y4.isVop && !y4.isZop && !y4.isYop && y4.ir.bits(15,12) == 0x000F
+	y4.isBase = !y4.isVop && !y4.isZop && !y4.isYop && !y4.isXop
+
+	dbg(fmt.Sprintf("ir 0x%04X isVop=%v isZop=%v isYop=%v isXop=%v isBase=%v",
+		y4.ir, y4.isVop, y4.isZop, y4.isYop, y4.isXop, y4.isBase))
+
+	y4.ra = y4.vop
+	y4.rb = y4.zop
+	y4.rc = y4.yop
+}
+
+// Set the ALU output and memory (for stores) data in the
+// non-architectural per-cycle machine state. Again,
+// somewhat like the eventual pipelined implementation.
+func (y4 *y4machine) execute() {
+	if y4.isBase {
+		baseops[y4.op]()
+	} else if y4.isXop {
+		y4.alu3()
+	} else if y4.isYop {
+		yops[y4.yop]()
+	} else if y4.isZop {
+		y4.alu1()
+	} else {
+		if !y4.isVop {
+			y4.decodeFailure("vop")
+		}
+		vops[y4.vop]()
+	}
+}
+
+// For instructions that reference memory, special register space,
+// or I/O space, do the operation. The computed address is in the alu
+// (alu result) register and the execute phase must also have loaded
+// the store data register.
+func (y4 *y4machine) memory() {
+	if y4.ex != 0 { // exception pending - don't modify memory
+		return
+	}
+
+	// We always set the writeback register to the alu output. It
+	// gets overwritten in the code below by memory, io, or spr
+	// read, if any. In the writeback stage, it gets used, or it
+	// just doesn't, depending on the instruction.
+	y4.wb = word(y4.alu)
+
+	if y4.op < 4 { // general register load or store
+		mem := &y4.mem[y4.mode]
+		switch y4.op {
+		case 0:  // ldw
+			y4.wb = word(mem.dmem[y4.alu])
+			y4.wb |= word(mem.dmem[y4.alu+1]) << 8
+		case 1:  // ldb
+			y4.wb = word(mem.dmem[y4.alu])
+		case 2:  // stw
+			mem.dmem[y4.alu] = byte(y4.sd&0x00FF)
+			mem.dmem[y4.alu+1] = byte(y4.sd>>8)
+		case 3:  // stb
+			mem.dmem[y4.alu] = byte(y4.sd)
+		// no default
+		}
+	} else if y4.isYop { // special register or IO load or store
+		reg := &y4.reg[y4.mode]
+		switch y4.yop {
+		case 0: // lsp (load special)
+			y4.wb = reg.spr[y4.alu&(SprSize-1)]
+		case 1: // ssp (store special)
+			reg.spr[y4.alu&(SprSize-1)] = y4.sd
+		case 4: // lio (load from io)
+			y4.wb = y4.io[y4.alu&(IOSize-1)]
+		case 5: // sio
+			y4.io[y4.alu&(IOSize-1)] = y4.sd
+		// no default
+		}
+	}
+}
+
+// Write the result (including possible memory result) to a register.
+// Stores and io writes are handled at memory time.
+func (y4 *y4machine) writeback() {
+	if y4.ex != 0 { // exception pending - don't update registers
+		return
+	}
+
+	reg := y4.reg[y4.mode]
+	if y4.op == 0 ||   // ldw
+		y4.op == 1 ||  // ldb
+		y4.op == 5 ||  // adi
+		y4.op == 6 ||  // lui
+		y4.isXop ||    // 3-operand alu
+		(y4.isYop && y4.yop < 2) ||  // lsp or lio
+		y4.isZop {     // single operand alu
+
+		if y4.ra != 0 {
+			reg.gen[y4.ra] = y4.wb
+		}
+	}
+}
+
+// ================================================================
+// === The rest of this file is the implementation of execute() ===
+// ================================================================
+
 // The opcodes basically spread out to the right, using more and
 // more leading 1-bits. The bits come in groups of 3, with the
 // special case that 1110... is jlr and 1111... requires decoding
@@ -28,13 +171,14 @@ import (
 // decoding the next three bits, then 1111 111 111..., etc.
 //
 // The decoder already figured this out and set isx, xop, isy,
-// yop, and so on. We just need to switch on them (or not, if
-// a bunch of ops are very similar, like the xops).
+// yop, and so on. We just need to switch on them and do all
+// the things.
 
 type xf func()
 
 // We need a function with a parameter for reporting decode
-// failures. Then we need wrappers of type xf for tables.
+// failures (internal errors). Then we need wrappers of type
+// xf for the tables.
 func (y4 *y4machine) decodeFailure(msg string) {
 	pr(fmt.Sprintf("opcode 0x%04X\n", y4.op))
 	panic("executeSequential(): decode failure: " + msg)
@@ -51,12 +195,6 @@ func (y4 *y4machine) yopFail() {
 func (y4 *y4machine) zopFail() {
 	y4.decodeFailure("zop")
 }
-
-// Important: any execution function that expects to have its
-// result written back to the register file needs to set either
-// hasStandardWriteback or hasSpecialWriteback. These are used
-// at the writeback stage of the instruction to gate writing
-// to either the special or general register array.
 
 var baseops []xf = []xf{
 	y4.ldw,
@@ -105,15 +243,11 @@ func (y4 *y4machine) ldw() {
 	}
 	reg := y4.reg[y4.mode].gen
 	y4.alu = uint16(reg[y4.rb]) + y4.imm
-	y4.hasStandardWriteback = true
-	// memory operation handled in memory phase
 }
 
 func (y4 *y4machine) ldb() {
 	reg := y4.reg[y4.mode].gen
 	y4.alu = uint16(reg[y4.rb]) + y4.imm
-	y4.hasStandardWriteback = true
-	// memory operation handled in memory phase
 }
 
 func (y4 *y4machine) stw() {
@@ -141,12 +275,10 @@ func (y4 *y4machine) beq() {
 func (y4 *y4machine) adi() {
 	reg := y4.reg[y4.mode].gen
 	y4.alu = uint16(reg[y4.rb]) + y4.imm
-	y4.hasStandardWriteback = true
 }
 
 func (y4 *y4machine) lui() {
 	y4.alu = y4.imm
-	y4.hasStandardWriteback = true
 }
 
 func (y4 *y4machine) jlr() {
@@ -179,8 +311,6 @@ func (y4 *y4machine) jlr() {
 	default:
 		y4.ex = ExIllegal
 	}
-	y4.hasStandardWriteback = false
-	y4.hasSpecialWriteback = false
 }
 
 // xops - 3-operand ALU operations all handled here
@@ -189,7 +319,6 @@ func (y4 *y4machine) alu3() {
 	reg := y4.reg[y4.mode].gen
 	rs2 := uint16(reg[y4.rc])
 	rs1 := uint16(reg[y4.rb])
-	y4.hasStandardWriteback = true
 
 	switch (y4.xop) {
 	case 0: // add
@@ -230,29 +359,21 @@ func (y4 *y4machine) alu3() {
 func (y4 *y4machine) lsp() {
 	reg := y4.reg[y4.mode].gen
 	y4.alu = uint16(reg[y4.rb]) + y4.imm
-	y4.hasStandardWriteback = true
-	// memory operation handled in memory phase
 }
 
 func (y4 *y4machine) lio() {
 	reg := y4.reg[y4.mode].gen
 	y4.alu = uint16(reg[y4.rb]) + y4.imm
-	y4.hasStandardWriteback = true
-	// memory operation handled in memory phase
 }
 
 func (y4 *y4machine) ssp() {
 	reg := y4.reg[y4.mode].gen
 	y4.alu = uint16(reg[y4.rb]) + y4.imm
-	// no register writeback
-	// memory operation handled in memory phase
 }
 
 func (y4 *y4machine) sio() {
 	reg := y4.reg[y4.mode].gen
 	y4.alu = uint16(reg[y4.rb]) + y4.imm
-	// no register writeback
-	// memory operation handled in memory phase
 }
 
 func (y4 *y4machine) y04() {
@@ -272,7 +393,6 @@ func (y4 *y4machine) y06() {
 func (y4 *y4machine) alu1() {
 	reg := y4.reg[y4.mode].gen
 	rs1 := uint16(reg[y4.ra])
-	y4.hasStandardWriteback = true
 
 	switch y4.zop {
 	case 0: //not
@@ -334,21 +454,4 @@ func (y4 *y4machine) v06() {
 
 func (y4 *y4machine) die() {
 	y4.ex = ExIllegal
-}
-
-func (y4 *y4machine) executeSequential() {
-	if y4.isBase {
-		baseops[y4.op]()
-	} else if y4.isXop {
-		y4.alu3()
-	} else if y4.isYop {
-		yops[y4.yop]()
-	} else if y4.isZop {
-		y4.alu1()
-	} else {
-		if !y4.isVop {
-			y4.decodeFailure("vop")
-		}
-		vops[y4.vop]()
-	}
 }

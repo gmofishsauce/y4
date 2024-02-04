@@ -47,7 +47,9 @@ type word uint16
 // there are 32 distinct types. The first 16 types 0..30 are
 // accessible as opcodes SYS 0 through SYS 30. The second 16,
 // 32..62, are reserved for the hardware to inject when an
-// exceptional condition is detected.
+// exceptional condition is detected. SYS 0 jumps to the system
+// reset code; if called from user mode, the kernel can (and
+// does) choose to treat this as an illegal instruction.
 
 const ExIllegal word = 32 // illegal instruction
 const ExMemory word = 48  // Page fault or unaligned access
@@ -88,12 +90,6 @@ type y4machine struct {
 	isXop, isYop, isZop, isVop, isBase bool
 	ra, rb, rc uint16
 
-	// These are cleared at fetch time and set during execution as
-	// a programming convenience. The save the effort to recompute
-	// which instructions have writebacks.
-	hasStandardWriteback bool // wb => reg[rA] at writeback
-	hasSpecialWriteback bool  // wb => spr[rA] at writeback
-
 	// Non-architectural state set at execute or memory. These
 	// will evolve into pipeline registers in the future pipelined
 	// simulation.
@@ -111,9 +107,9 @@ type y4machine struct {
 	// or, if there's a load, at memory time, and placed in the wb
 	// register. The wb register is written to either a general or
 	// special register at writeback time as required by the opcode.
-	alu uint16 // temporary alu result register
+	alu uint16 // temporary alu result register; memory address
 	sd word    // memory source data register
-	wb word    // register writeback (instruction result)
+	wb word    // writeback register (instruction result)
 }
 
 var y4 y4machine = y4machine {
@@ -126,14 +122,6 @@ var y4 y4machine = y4machine {
 		{gen: make([]word, 8, 8), spr: make([]word, SprSize, SprSize)}, // kernel
 	},
 	io: make([]word, IOSize, IOSize),
-}
-
-func (y4 *y4machine) reset() {
-	y4.cyc = 0
-	y4.pc = 0
-	y4.run = true
-	y4.mode = Kern
-	y4.ex = 0
 }
 
 func main() {
@@ -155,11 +143,11 @@ func main() {
 		}
 	}
 
-	// reset here in main so that run() can act as "continue" (TBD)`
 	dbg("start")
 	y4.reset()
 	err = y4.simulate()
 	if err != nil {
+		// This represents some kind of internal error, not error in program
 		fatal(fmt.Sprintf("error: running %s: %s", args[0], err.Error()))
 		os.Exit(2)
 	}
@@ -190,179 +178,12 @@ func (y4 *y4machine) simulate() error {
 		if *dflag {
 			y4.dump()
 			var toss []byte = []byte{0}
+			fmt.Printf("sim> ")
 			os.Stdin.Read(toss)
 		}
 	}
 	y4.dump()
 	return nil
-}
-
-// Get the bits from hi:lo inclusive as a small uint16
-// Example: w := 0xFDFF ; w.bits(10,8) == uint16(5)
-func (w word) bits(hi int, lo int) uint16 {
-	return uint16(w>>lo) & uint16(1<<(hi-lo+1)-1)
-}
-
-// Decode a sign extended 10 or 7 bit immediate value from the current
-// instruction. If the instruction doesn't have an immediate value, then
-// the rest of the decode shouldn't try to use it so the return value is
-// not important. In this case return the most harmless value, 0.
-func (y4 *y4machine) sxtImm() uint16 {
-	var result uint16
-	ir := y4.ir
-	op := ir.bits(15,13)
-	neg := ir.bits(12,12) != 0
-	if op < 6 { // ldw, ldb, stw, stb, beq, adi all have 7-bit immediates
-		result = ir.bits(12,6)
-		if neg {
-			result |= 0xFF80
-		}
-	} else if op == 6 { // lui has a 10-bit immediate, upper bits
-		result = ir.bits(12, 3) << 6
-	} else if op == 7 && !neg { // jlr - 7-bit immediate if positive
-		result = ir.bits(12,6)
-	}
-	// else bits(15,12) == 0xF and the instruction has no immediate value
-	return result
-}
-
-// Fetch next instruction into ir.
-func (y4 *y4machine) fetch() {
-	// Clear the state set during execution and used at writeback.
-	// The state set during decode is taken care of there.
-	y4.alu = 0
-	y4.sd = 0
-	y4.wb = 0
-	y4.hasStandardWriteback = false
-	y4.hasSpecialWriteback = false
-	// This one is more complicated. May remove this when IFTEs are
-	// fully implemented.
-	y4.ex = 0
-
-	mem := &y4.mem[y4.mode]
-	y4.ir = mem.imem[y4.pc]
-	dbg(fmt.Sprintf("fetched 0x%04X at 0x%d", y4.ir, y4.pc))
-
-	// Control flow instructions will overwrite this at the writeback stage.
-	// This implementation is sequential (does everything each clock cycle).
-	y4.pc++
-	if y4.pc == 0 {
-		y4.ex = ExMachine // machine check - PC wrapped		
-	}
-}
-
-// Pull out all the possible distinct field types into uint16s. The targets
-// (op, i7, yop, etc.) are all non-architectural per-cycle and mostly mean
-// e.g. multiplexer outputs in hardware. The remaining stages can act on the
-// decoded values. Plausible additional decoding (which instructions have
-// targets? Which target special registers?) is left to the execution code.
-func (y4 *y4machine) decode() {
-	y4.op = y4.ir.bits(15,13)	// base opcode
-	y4.imm = y4.sxtImm()
-
-	y4.xop = y4.ir.bits(11,9)
-	y4.yop = y4.ir.bits(8,6)
-	y4.zop = y4.ir.bits(5,3)
-	y4.vop = y4.ir.bits(2,0)
-
-	y4.isVop = y4.ir.bits(15,3) == 0x1FFF
-	y4.isZop = !y4.isVop && y4.ir.bits(15,6) == 0x03FF
-	y4.isYop = !y4.isVop && !y4.isZop && y4.ir.bits(15,9) == 0x007F
-	y4.isXop = !y4.isVop && !y4.isZop && !y4.isYop && y4.ir.bits(15,12) == 0x000F
-	y4.isBase = !y4.isVop && !y4.isZop && !y4.isYop && !y4.isXop
-
-	dbg(fmt.Sprintf("ir 0x%04X isVop=%v isZop=%v isYop=%v isXop=%v isBase=%v",
-		y4.ir, y4.isVop, y4.isZop, y4.isYop, y4.isXop, y4.isBase))
-
-	y4.ra = y4.vop
-	y4.rb = y4.zop
-	y4.rc = y4.yop
-}
-
-// Set the ALU output and memory (for stores) data in the
-// non-architectural per-cycle machine state. Again,
-// somewhat like the eventual pipelined implementation.
-// The implementation is in exec.go
-func (y4 *y4machine) execute() {
-	y4.executeSequential()
-}
-
-// For instructions that reference memory, special register space,
-// or I/O space, do the operation. The computed address is in the alu
-// (alu result) register and the execute phase must also have loaded
-// the store data register.
-//
-// Note that this modifies memory and it's not in the writeback phase.
-// Fine for this sequential implementation, but would seem to be an
-// error for pipelining. But I think it isn't: if it succeeds, then
-// the instruction will, because no exceptions are thrown at writeback
-// time. If it fails, the memory write fails, and the store instruction
-// didn't do anything else because this is RISC. So we can just handle
-// the exception at writeback time like every other exception.
-func (y4 *y4machine) memory() {
-	if y4.ex != 0 { // exception pending - don't modify memory
-		return
-	}
-
-	// We always set the writeback register to the alu output. It
-	// gets overwritten in the code below by memory, io, or spr
-	// read, if any. In the writeback stage, it gets used, or it
-	// just doesn't, depending on the instruction.
-	y4.wb = word(y4.alu)
-
-	if y4.op < 4 { // general register load or store
-		mem := &y4.mem[y4.mode]
-		switch y4.op {
-		case 0:  // ldw
-			y4.wb = word(mem.dmem[y4.alu])
-			y4.wb |= word(mem.dmem[y4.alu+1]) << 8
-		case 1:  // ldb
-			y4.wb = word(mem.dmem[y4.alu])
-		case 2:  // stw
-			mem.dmem[y4.alu] = byte(y4.sd&0x00FF)
-			mem.dmem[y4.alu+1] = byte(y4.sd>>8)
-		case 3:  // stb
-			mem.dmem[y4.alu] = byte(y4.sd)
-		// no default
-		}
-	} else if y4.isYop { // special register or IO load or store
-		reg := &y4.reg[y4.mode]
-		switch y4.yop {
-		case 0: // lsp (load special)
-			y4.wb = reg.spr[y4.alu&(SprSize-1)]
-		case 1: // ssp (store special)
-			reg.spr[y4.alu&(SprSize-1)] = y4.sd
-		case 4: // ior 
-			y4.wb = y4.io[y4.alu&(IOSize-1)]
-		case 5: // iow
-			y4.io[y4.alu&(IOSize-1)] = y4.sd
-		// no default
-		}
-	}
-}
-
-// Write the result (including possible memory result) to a register.
-// Stores and io writes are handled at memory time.
-func (y4 *y4machine) writeback() {
-	if y4.ex != 0 { // exception pending - don't update registers
-		return
-	}
-
-	// This code will be replaced by hasStandardWriteback and
-	// hasSpecialWriteback after the execution code is complete. 
-	// It's retained for now and will also be used for testing.
-	reg := y4.reg[y4.mode]
-	if y4.op == 0 ||   // ldw
-		y4.op == 1 ||  // ldb
-		y4.op == 5 ||  // adi
-		y4.op == 6 ||  // lui
-		y4.isXop ||    // 3-operand alu
-		(y4.isYop && y4.yop < 2) ||  // lsp or lio
-		y4.isZop {     // single operand alu
-			if y4.ra != 0 {
-				reg.gen[y4.ra] = y4.wb
-			}
-	}
 }
 
 // I don't know exactly what I'm going to do for output from the
