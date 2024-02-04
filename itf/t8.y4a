@@ -1,0 +1,8 @@
+lui r1, -512
+lui r2, 513
+lui r3, 1023
+lui r4, 0
+ldi r5, 0xFFFF
+adi r5, r5, 1
+lsi r6, 63
+

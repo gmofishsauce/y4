@@ -23,20 +23,24 @@ import (
 
 // Fetch next instruction into ir.
 func (y4 *y4machine) fetch() {
-	// Clear the state set during execution and used at writeback.
-	// The state set during decode is taken care of there.
-	y4.alu = 0
-	y4.sd = 0
-	y4.wb = 0
-	// This one is more complicated. May remove this when IFTEs are
-	// fully implemented.
-	y4.ex = 0
+	if y4.ex != 0 {
+		// As a convenience, double fault is handled in the main loop.
+		assert(y4.en, "double fault in fetch()")
+
+		// an exception occurred during the previous cycle.
+		y4.mode = Kern
+		y4.reg[y4.mode].spr[Irr] = y4.pc
+		y4.reg[y4.mode].spr[Icr] = y4.ex
+		y4.pc = word(y4.ex)
+		y4.en = false
+		y4.ex = 0
+	}
 
 	mem := &y4.mem[y4.mode]
 	y4.ir = mem.imem[y4.pc]
 	dbg(fmt.Sprintf("fetched 0x%04X at 0x%04X", y4.ir, y4.pc))
 
-	// Control flow instructions will overwrite this at the writeback stage.
+	// Control flow instructions will overwrite this in a later stage.
 	// This implementation is sequential (does everything each clock cycle).
 	y4.pc++
 	if y4.pc == 0 {
@@ -76,6 +80,12 @@ func (y4 *y4machine) decode() {
 // non-architectural per-cycle machine state. Again,
 // somewhat like the eventual pipelined implementation.
 func (y4 *y4machine) execute() {
+	if y4.ex != 0 {
+		// The program counter gets modified by the execution
+		// stage, so we must not proceed if there has been any
+		// exception caused by the fetch or decode activities.
+		return
+	}
 	if y4.isBase {
 		baseops[y4.op]()
 	} else if y4.isXop {
@@ -294,15 +304,14 @@ func (y4 *y4machine) jlr() {
 	// is overloaded as additional opcode bits here.
 	switch y4.ra {
 	case 0: // sys trap
-		if y4.rb != 0 || y4.imm&1 == 1 || y4.imm > 30 {
+		if y4.rb != 0 || y4.imm&1 == 1 || y4.imm == 0 || y4.imm > 30 {
 			// The first 16 traps, represented by values 0..30, are
 			// legal instructions. 32..62 are reserved for hardware.
+			// (Trap 0 is not legal because it resets the machine.)
 			y4.ex = ExIllegal
 			return
 		}
-		y4.mode = Kern
-		y4.reg[y4.mode].spr[Irr] = y4.pc
-		y4.pc = word(y4.imm)
+		y4.ex = word(y4.imm)
 	case 1: // jump and link
 		y4.reg[y4.mode].spr[Link] = y4.pc
 		y4.pc = word(uint16(y4.reg[y4.mode].gen[y4.rb]) + y4.imm)

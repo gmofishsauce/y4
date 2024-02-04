@@ -78,38 +78,20 @@ type y4machine struct {
 	mode byte   // current mode, user = 0, kernel = 1
 
 	// Non-architectural state used within an instruction
+	alu uint16  // temporary alu result register; memory address
+	sd word     // memory source data register set at execute
+	wb word     // writeback register set at execute or memory
 	ex word		// exception code
 	ir word     // instruction register
 	hc uint16   // hidden carry bit, 1 or 0
 
-	// These variables are a programming convenience
-	// They hold the output of the instruction decoder
-	// They are all set at fetch time.
+	// These variables are part of the combinational logic.
+	// The are set at decode time and used at execute, memory,
+	// or writeback time.
 	op, imm uint16
 	xop, yop, zop, vop uint16
 	isXop, isYop, isZop, isVop, isBase bool
 	ra, rb, rc uint16
-
-	// Non-architectural state set at execute or memory. These
-	// will evolve into pipeline registers in the future pipelined
-	// simulation.
-	//
-	// The alu result is computed at execution time. If there
-	// is a load or store, it is the address in all cases.
-	//
-	// If there's a store, the source data is set at execution
-	// time and stored in sd. For a load, the data is placed in
-	// the writeback register (wb) at memory time. If there's a
-	// 16-bit write, the LS bits go at the byte addressed by the
-	// alu value and the MS bits next byte i.e. "little endian".
-	//
-	// The instruction result, if any, is computed at execute time
-	// or, if there's a load, at memory time, and placed in the wb
-	// register. The wb register is written to either a general or
-	// special register at writeback time as required by the opcode.
-	alu uint16 // temporary alu result register; memory address
-	sd word    // memory source data register
-	wb word    // writeback register (instruction result)
 }
 
 var y4 y4machine = y4machine {
@@ -149,7 +131,6 @@ func main() {
 	if err != nil {
 		// This represents some kind of internal error, not error in program
 		fatal(fmt.Sprintf("error: running %s: %s", args[0], err.Error()))
-		os.Exit(2)
 	}
 	dbg("done")
 }
@@ -157,6 +138,10 @@ func main() {
 // Run the simulator. There must already be something loaded in imem.
 
 func (y4 *y4machine) simulate() error {
+	if y4.ex != 0 {
+		fatal("internal error: simulation started with an exception pending")
+	}
+
 	// The simulator is written as a rigid set of parameterless functions
 	// that act on shared machine state. This will make it simpler to
 	// simulate pipelining later.
@@ -165,7 +150,7 @@ func (y4 *y4machine) simulate() error {
 	// It happens in the order of a pipelined machine, though, to make
 	// converting this to a pipelined simulation easier in the future.
 
-	for ; y4.run ; y4.cyc++ {
+	for y4.cyc++ ; y4.run ; y4.cyc++ {
 		y4.fetch()
 		y4.decode()
 		y4.execute()
@@ -221,10 +206,10 @@ func (y4 *y4machine) dump() {
 		fmt.Printf("%04X%s", mem.imem[off+i], spOrNL(i < 7))
 	}
 	
-	// The memory address, if there is one, always comes from the ALU
-	// Print the memory at the ALU address even though it might not have
-	// anything to do with current execution.
-	off = int(y4.alu & 0xFFF8)
+	// For lack of a better answer, print the memory row at 0.
+	// This at least gives 8 deterministic locations for putting
+	// the results of tests
+	off = 0 // was: int(y4.alu & 0xFFF8)
 	fmt.Printf(headerFormat, fmt.Sprintf("dmem@0x%04X", off))
 	for i := 0; i < 8; i++ {
 		fmt.Printf("%04X%s", mem.dmem[off+i], spOrNL(i < 7))

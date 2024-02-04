@@ -241,7 +241,7 @@ func condense(at int, prevInst uint16, inst uint16, pInstr *[]string) error {
 	if bits(inst,15,13) == 5 && bits(inst,5,3) == bits(inst,2,0) && bits(inst,2,0) != 0 {
 	   if bits(inst,12,12) == 0 {
 			// It's an lli, adding a positive 7-bit immediate += to rA.
-			// If previous was lui, condense to ldi. Otherwise, write as adi.
+			// If previous was lui, condense to ldi. Otherwise, write as lli.
 			if luiSeen {
 				instructions[at-1] = "" // hide the lui
 				instructions[at] = fmt.Sprintf("ldi %s, 0x%04X",
@@ -264,12 +264,12 @@ func condense(at int, prevInst uint16, inst uint16, pInstr *[]string) error {
 		// The disassembler assumes the code was written by the assembler.
 		// So if the code builds the upper part of rB without using an lui,
 		// and then does a jmp or jsr with a nonzero immediate, the disassembler
-		// writes out something that cannot be reassembled (since the code
-		// could not have come from assembly mnemonics in the first place).
-		// The disassembler emits the 0xE... opcode as "jlr" in this case.
+		// writes out something that cannot be reassembled. The disassembler
+		// emits the 0xE... opcode as "jlr" in this case, but the assembler
+		// does not accept jlr.
 
 		rb := bits(inst,5,3)
-		imm := bits(inst,12,6)
+		imm := bits(inst,12,6)  // but we know bit 12 is 0
 		switch bits(inst,2,0) { // the j2:j0 bits in the rA field
 		case 0: // sys
 			if rb != 0 || imm&1 != 0 {
@@ -281,7 +281,7 @@ func condense(at int, prevInst uint16, inst uint16, pInstr *[]string) error {
 			if luiSeen && rb == bits(prevInst,2,0) {
 				// lui+jlr with j's == 1 becomes jsr rB, target
 				instructions[at-1] = "" // hide the lui
-				instructions[at] = fmt.Sprintf("jsr %s, %d",
+				instructions[at] = fmt.Sprintf("jsr %s, 0x%04X",
 					RegNames[bits(inst,5,3)],
 					(bits(prevInst,12,3)<<6) | bits(inst,12,6))
 			} else if imm == 0 && rb != 0 { // becomes computed jsr rB
