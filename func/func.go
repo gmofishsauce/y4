@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"flag"
 	"os"
+	"time"
 )
 
 // The WUT-4 boots in kernel mode, so the kernel binary is mandatory.
@@ -150,6 +151,7 @@ func (y4 *y4machine) simulate() error {
 	// It happens in the order of a pipelined machine, though, to make
 	// converting this to a pipelined simulation easier in the future.
 
+	tStart := time.Now()
 	for y4.cyc++ ; y4.run ; y4.cyc++ {
 		y4.fetch()
 		y4.decode()
@@ -167,6 +169,8 @@ func (y4 *y4machine) simulate() error {
 			os.Stdin.Read(toss)
 		}
 	}
+	d := time.Since(tStart)
+	fmt.Printf("%d cycles in %v (%8.2f cycles/second)\n", y4.cyc, d, float64(y4.cyc) / d.Seconds())
 	y4.dump()
 	return nil
 }
