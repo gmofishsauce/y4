@@ -1,0 +1,84 @@
+; kernel - loads a 0 in kernel space. Only the first kernel-mode
+; MMU register is initialized by hardware, so this part of the
+; kernel must fit in the first 4k word page.
+
+#bank code
+
+; 32 2-word vectors. First 16 correspond to sys instructions.
+; The second group of 16 are injected by hardware or unused.
+
+	jmp r5, _reset		; sys 0 - reset vector
+	jmp r5, _fastsys	; sys 1 - fast system calls
+	jmp r5, _syscall	; sys 2 - system calls
+	jmp r5, _badsys
+
+	jmp r5, _badsys		; sys 8
+	jmp r5, _badsys
+	jmp r5, _badsys
+	jmp r5, _badsys
+
+	jmp r5, _badsys		; sys 16
+	jmp r5, _badsys
+	jmp r5, _badsys
+	jmp r5, _badsys
+
+	jmp r5, _badsys		; sys 24
+	jmp r5, _badsys
+	jmp r5, _badsys
+	jmp r5, _badsys
+
+	; begin injected hardware faults
+
+	jmp r5, _illegal	; trap 32 - illegal instruction fault
+	jmp r5, _badtrap
+	jmp r5, _badtrap
+	jmp r5, _badtrap
+
+	jmp r5, _badtrap	; trap 40
+	jmp r5, _badtrap
+	jmp r5, _badtrap
+	jmp r5, _badtrap
+
+	jmp r5, _mmufault	; trap 48 - page fault
+	jmp r5, _align		; trap 50 - alignment fault
+	jmp r5, _badtrap
+	jmp r5, _badtrap
+
+	jmp r5, _badtrap	; trap 56
+	jmp r5, _badtrap
+	jmp r5, _badtrap
+	jmp r5, _machine	; trap 62 - machine check
+
+; Word 64 in memory. End of vectors. Begin code.
+
+_reset:					; reset and start. Nothing to do here.
+	jmp r5, code
+
+_machine:				; TODO machine check
+	die
+
+_mmufault:				; TODO page fault and segmentation exception
+	die
+
+_align:					; TODO alignment fault
+	die
+
+; I'd like to know how to assert that $ at this point is < 4096.
+; That's the end of the code that must be in page 0. Depending
+; on the design of the kernel, it may be important to put other
+; code in page 0. This is TBD. The rest can go anywhere.
+
+_badsys:	; undefined sys instruction
+_badtrap:	; undefined hardware fault
+	die
+
+_illegal:	; TODO illegal instruction fault
+	die
+_fastsys:	; TODO fast read-only system calls
+	die
+_syscall:	; TODO ordinary system calls that can move data
+	die
+
+#addr 8192
+code:
+#include "code.y4a"

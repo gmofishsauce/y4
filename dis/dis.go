@@ -255,8 +255,8 @@ func condense(at int, prevInst uint16, inst uint16, pInstr *[]string) error {
 			}
 		} else {
 			// it's an adi with a negative immediate. This can't be an lli
-			instructions[at] = fmt.Sprintf("adi %s, 0x%02X",
-				RegNames[bits(inst,2,0)], bits(inst,12,6))
+			instructions[at] = fmt.Sprintf("adi %s, %s, 0x%02X",
+				RegNames[bits(inst,2,0)], RegNames[bits(inst,5,3)], bits(inst,12,6))
 		}
 	} else if bits(inst,15,12) == 0xE { // jlr
 		// Replace with sys, jmp, or jsr, depending on the j2:j0 (rA) bits.

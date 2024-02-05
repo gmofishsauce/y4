@@ -135,7 +135,7 @@ cat > ${RULES} << 'EOF'
 	ldb {ra: reg}, {rb: reg}, {imm: imm7}   => le(0b001   @ imm @ rb @ ra)
 	stw {ra: reg}, {rb: reg}, {imm: imm7}   => le(0b010   @ imm @ rb @ ra)
 	stb {ra: reg}, {rb: reg}, {imm: imm7}   => le(0b011   @ imm @ rb @ ra)
-	beq {ra: reg}, {rb: reg}, {adr: imm7}   => {
+	beq {ra: reg}, {rb: reg}, {adr: imm16}   => {
 		reladdr = adr - $ - 1
 		le(0b100   @ reladdr`7 @ rb @ ra)
 	}
