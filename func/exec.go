@@ -137,11 +137,11 @@ func (y4 *y4machine) memory() {
 		switch y4.yop {
 		case 0: // lsp (load special)
 			y4.wb = reg.spr[y4.alu&(SprSize-1)]
-		case 1: // ssp (store special)
-			reg.spr[y4.alu&(SprSize-1)] = y4.sd
-		case 4: // lio (load from io)
+		case 1: // lio (load from io)
 			y4.wb = y4.io[y4.alu&(IOSize-1)]
-		case 5: // sio
+		case 2: // ssp (store special)
+			reg.spr[y4.alu&(SprSize-1)] = y4.sd
+		case 3: // sio
 			y4.io[y4.alu&(IOSize-1)] = y4.sd
 		// no default
 		}
@@ -305,9 +305,10 @@ func (y4 *y4machine) jlr() {
 	switch y4.ra {
 	case 0: // sys trap
 		if y4.rb != 0 || y4.imm&1 == 1 || y4.imm == 0 || y4.imm > 30 {
-			// The first 16 traps, represented by values 0..30, are
-			// legal instructions. 32..62 are reserved for hardware.
-			// (Trap 0 is not legal because it resets the machine.)
+			// 15 of the first 16 traps, represented by values 2..30,
+			// are legal instructions. 32..62 are reserved for hardware.
+			// Trap 0 is not legal because it resets the machine. The
+			// kernel can do this by jmp 0.
 			y4.ex = ExIllegal
 			return
 		}
@@ -406,6 +407,7 @@ func (y4 *y4machine) alu1() {
 	switch y4.zop {
 	case 0: //not
 		y4.alu = ^rs1
+		y4.hc = 0
 	case 1: //neg
 		y4.alu = 1 + ^rs1
 	case 2: //swb
@@ -417,15 +419,20 @@ func (y4 *y4machine) alu1() {
 			y4.alu = rs1 &^ 0xFF00
 		}
 	case 4: //lsr
+		y4.hc = rs1&1
 		y4.alu = rs1 >> 1
 	case 5: //lsl
+		if rs1&0x8000 == 0 {
+			y4.hc = 0
+		} else {
+			y4.hc = 1
+		}
 		y4.alu = rs1 << 1
 	case 6: //asr
 		sign := rs1 & 0x8000
+		y4.hc = rs1&1
 		y4.alu = rs1 >> 1
-		if sign != 0 {
-			y4.alu |= sign
-		}
+		y4.alu |= sign
 	case 7:
 		y4.zopFail()
 	}
@@ -434,19 +441,31 @@ func (y4 *y4machine) alu1() {
 // vops - 0 operand instructions
 
 func (y4 *y4machine) rti() {
-	TODO()
+	// This is acceptable because (1) the machine is not pipelined
+	// and (2) the instruction doesn't do anything else but this.
+	// In a pipelined implementation, this would be more complex.
+	// Also, enabling interrupts is wrong. The interrupt enable
+	// state must be saved in a control register which can be both
+	// read and written from kernelmode. Otherwise, ITFEs won't
+	// nest correctly. For now it's not an issue because the kernel
+	// doesn't support nesting.
+	y4.ex = 0
+	y4.en = true
+	y4.pc = y4.reg[y4.mode].spr[Irr]
+	y4.reg[y4.mode].spr[Irr] = ExMachine
+	y4.mode = User
 }
 
 func (y4 *y4machine) rtl() {
-	y4.pc = y4.reg[y4.mode].spr[1]
+	y4.pc = y4.reg[y4.mode].spr[Link]
 }
 
 func (y4 *y4machine) di() {
-	TODO()
+	y4.en = false
 }
 
 func (y4 *y4machine) ei() {
-	TODO()
+	y4.en = true
 }
 
 func (y4 *y4machine) hlt() {
@@ -454,7 +473,8 @@ func (y4 *y4machine) hlt() {
 }
 
 func (y4 *y4machine) brk() {
-	TODO()
+	// for now
+	y4.dump()
 }
 
 func (y4 *y4machine) v06() {
