@@ -1,7 +1,9 @@
-; Code (test) file included at location 8192 in kernel memory
-; This just loops for a while to test performance.
+; Loads at 0 in user memory. Takes a second
+; or two to execute, providing a machine cycles
+; per second estimator.
+
 	lsi r1, 0
-	lsi r2, 40
+	lsi r2, 10
 
 inner:
 	adi r1, r1, -1
@@ -11,6 +13,7 @@ inner:
 outer:
 	adi r2, r2, -1
 	beq r2, r0, done
+	brk
 	beq r0, r0, inner
 
 done:

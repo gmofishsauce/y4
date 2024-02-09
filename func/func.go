@@ -179,6 +179,17 @@ func (y4 *y4machine) simulate() error {
 // simulator. For now, I threw together this function, which dumps
 // the machine state and some memory contents to the screen.
 func (y4 *y4machine) dump() {
+
+	// ---
+	// The code below homes the cursor and clears the screen. This
+	// provides a nice nonscrolling register dump, but erases all
+	// the debugging output. Something better is required.
+	//
+	//if !dbEnabled {
+	//	fmt.Printf("\033[2J\033[0;0H")
+	//}
+	// ---
+
 	modeName := "user"
 	if y4.mode == 1 {
 		modeName = "kern"

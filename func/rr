@@ -1,9 +1,0 @@
-#!/bin/bash
-#
-# rr - assemble first argument and execute it.
-rm ./y4.out
-if ../asm/asm $1 ; then 
-	./func $2 y4.out
-else
-	echo "assembler error(s) - simulator not run."
-fi

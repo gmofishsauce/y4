@@ -51,8 +51,11 @@
 
 ; Word 64 in memory. End of vectors. Begin code.
 
-_reset:					; reset and start. Nothing to do here.
-	jmp r5, code
+_reset:					; reset and start.
+	lsi r2, 2			; Spr address of Irr
+	lsi r1, 0			; 0 address in user code space
+	ssp r1, r2			; store in Irr
+	rti					; return to usermode at 0 (start)
 
 _machine:				; TODO machine check
 	die
@@ -78,7 +81,3 @@ _fastsys:	; TODO fast read-only system calls
 	die
 _syscall:	; TODO ordinary system calls that can move data
 	die
-
-#addr 8192
-code:
-#include "code.y4a"
