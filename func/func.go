@@ -28,6 +28,7 @@ import (
 // The WUT-4 boots in kernel mode, so the kernel binary is mandatory.
 // A user mode binary is optional.
 var dflag = flag.Bool("d", false, "enable debugging")
+var hflag = flag.Bool("h", false, "home cursor (don't scroll)")
 var uflag = flag.String("u", "", "user binary")
 
 // Functional simulator for y4 instruction set
@@ -131,7 +132,7 @@ func main() {
 	signal.Notify(c, os.Interrupt)
 	go func() {
 		for sig := range c {
-			fmt.Printf("caught %v\n", sig)
+			fmt.Printf("caught %v ('x' to exit)\n", sig)
 			dbEnabled = true
 		}
 	}()
@@ -173,7 +174,6 @@ func (y4 *y4machine) simulate() error {
 		y4.memory()
 		y4.writeback()
 		if y4.ex != 0 && !y4.en {
-			fmt.Printf("double fault: exception %d\n", y4.ex)
 			break
 		}
 		if dbEnabled {
@@ -183,15 +183,23 @@ func (y4 *y4machine) simulate() error {
 	}
 	d := time.Since(tStart)
 
-	fmt.Println("halt")
-	if blockedForInput {
-		fmt.Printf("%d cycles executed\n", y4.cyc)
-	} else {
-		fmt.Printf("%d cycles in %s (%6.0f cycles/second)\n", y4.cyc,
-					d.Round(time.Millisecond).String(),
-					float64(y4.cyc) / d.Seconds())
-	}
 	y4.dump()
+
+	// Print a line about why the simulator halted, and then a line about
+	// how long execution took. Don't print time if sim was interactive.
+	msg := "halt"
+	if y4.ex != 0 && !y4.en {
+		msg += fmt.Sprintf(": double fault: exception %d", y4.ex)
+	}
+	fmt.Println(msg)
+
+	msg = fmt.Sprintf("%d cycles executed", y4.cyc)
+	if !blockedForInput { // noninteractive run: print time
+		msg += fmt.Sprintf(" in %s (%1.3fMHz)",
+					d.Round(time.Millisecond).String(),
+					(float64(y4.cyc)/1e6) / d.Seconds())
+	}
+	fmt.Println(msg)
 	return nil
 }
 
@@ -199,9 +207,9 @@ func (y4 *y4machine) simulate() error {
 func prompt() bool {
 	blockedForInput = true
 
-	var c []byte = []byte{0}
+	var c []byte = make([]byte, 80, 80)
 	loop: for {
-		fmt.Printf("[h c s x] sim> ")
+		fmt.Printf("\n[h c s x] sim> ")
 		os.Stdin.Read(c)
 		switch c[0] {
 		case 'h':
@@ -219,18 +227,15 @@ func prompt() bool {
 	return true
 }
 
-// I don't know exactly what I'm going to do for output from the
-// simulator. For now, I threw together this function, which dumps
-// the machine state and some memory contents to the screen.
+// Dump some machine state. This method can be invoked from inside a wut-4
+// program by executing the dsp instruction or the brk instruction. The brk
+// instruction also makes the simulator go interactive (prompt to continue).
 func (y4 *y4machine) dump() {
-
-	// ---
-	// The code below homes the cursor and clears the screen. This
-	// provides a nice nonscrolling register dump, but erases all
-	// the debugging output. Something better is required.
-	//
-	// fmt.Printf("\033[2J\033[0;0H")
-	// ---
+	if *hflag {
+		// Home cursor and clear screen
+		// This erases the debug output
+		fmt.Printf("\033[2J\033[0;0H")
+	}
 
 	modeName := "user"
 	if y4.mode == Kern {
