@@ -22,6 +22,7 @@ import (
 	"flag"
 	"os"
 	"os/signal"
+	"runtime/pprof"
 	"time"
 )
 
@@ -29,6 +30,8 @@ import (
 // A user mode binary is optional.
 var dflag = flag.Bool("d", false, "enable debugging")
 var hflag = flag.Bool("h", false, "home cursor (don't scroll)")
+var pflag = flag.Bool("p", false, "write profile to cpu.prof")
+var qflag = flag.Bool("q", false, "quiet (no simulator output)")
 var uflag = flag.String("u", "", "user binary")
 
 // Functional simulator for y4 instruction set
@@ -118,6 +121,21 @@ func main() {
         usage()
     }
 
+	if *pflag {
+		if *dflag {
+			fatal("cannot profile and debug at the same time")
+		}
+        f, err := os.Create("cpu.prof")
+        if err != nil {
+            fatal(fmt.Sprintf("could not create CPU profile: ", err))
+        }
+        defer f.Close()
+        if err := pprof.StartCPUProfile(f); err != nil {
+            fatal(fmt.Sprintf("could not start CPU profile: ", err))
+        }
+        defer pprof.StopCPUProfile()
+	}
+
     dbEnabled = *dflag
 	if err := y4.load(Kern, args[0]); err != nil {
 		fatal(fmt.Sprintf("loading %s: %s", args[0], err.Error()))
@@ -183,10 +201,13 @@ func (y4 *y4machine) simulate() error {
 	}
 	d := time.Since(tStart)
 
-	y4.dump()
+	if *qflag {
+		return nil
+	}
 
-	// Print a line about why the simulator halted, and then a line about
-	// how long execution took. Don't print time if sim was interactive.
+	// Dump the registers. Print a line about why the simulator halted,
+	// and then a line about timing unless sim was interactive.
+	y4.dump()
 	msg := "halt"
 	if y4.ex != 0 && !y4.en {
 		msg += fmt.Sprintf(": double fault: exception %d", y4.ex)

@@ -17,10 +17,6 @@ License along with this program. If not, see
 */
 package main
 
-import (
-	"fmt"
-)
-
 // Fetch next instruction into ir.
 func (y4 *y4machine) fetch() {
 	if y4.ex != 0 {
@@ -38,7 +34,6 @@ func (y4 *y4machine) fetch() {
 
 	mem := &y4.mem[y4.mode]
 	y4.ir = mem.imem[y4.pc]
-	dbg(fmt.Sprintf("fetched 0x%04X at 0x%04X", y4.ir, y4.pc))
 
 	// Control flow instructions will overwrite this in a later stage.
 	// This implementation is sequential (does everything each clock cycle).
@@ -67,9 +62,6 @@ func (y4 *y4machine) decode() {
 	y4.isYop = !y4.isVop && !y4.isZop && y4.ir.bits(15,9) == 0x007F
 	y4.isXop = !y4.isVop && !y4.isZop && !y4.isYop && y4.ir.bits(15,12) == 0x000F
 	y4.isBase = !y4.isVop && !y4.isZop && !y4.isYop && !y4.isXop
-
-	dbg(fmt.Sprintf("ir 0x%04X isVop=%v isZop=%v isYop=%v isXop=%v isBase=%v",
-		y4.ir, y4.isVop, y4.isZop, y4.isYop, y4.isXop, y4.isBase))
 
 	y4.ra = y4.vop
 	y4.rb = y4.zop
@@ -190,7 +182,7 @@ type xf func()
 // failures (internal errors). Then we need wrappers of type
 // xf for the tables.
 func (y4 *y4machine) decodeFailure(msg string) {
-	pr(fmt.Sprintf("opcode 0x%04X\n", y4.op))
+	y4.dump()
 	panic("executeSequential(): decode failure: " + msg)
 }
 
