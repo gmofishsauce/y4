@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"flag"
 	"os"
+	"os/signal"
 	"time"
 )
 
@@ -126,6 +127,15 @@ func main() {
 		}
 	}
 
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	go func() {
+		for sig := range c {
+			fmt.Printf("caught %v\n", sig)
+			dbEnabled = true
+		}
+	}()
+
 	dbg("start")
 	y4.reset()
 	err = y4.simulate()
@@ -135,6 +145,10 @@ func main() {
 	}
 	dbg("done")
 }
+
+// If we block for input at any time during execution, we don't report
+// the machine cycles per second at the end because it's not meaningful.
+var blockedForInput bool
 
 // Run the simulator. There must already be something loaded in imem.
 
@@ -162,17 +176,47 @@ func (y4 *y4machine) simulate() error {
 			fmt.Printf("double fault: exception %d\n", y4.ex)
 			break
 		}
-		if *dflag {
+		if dbEnabled {
 			y4.dump()
-			var toss []byte = []byte{0}
-			fmt.Printf("sim> ")
-			os.Stdin.Read(toss)
+			y4.run = prompt()
 		}
 	}
 	d := time.Since(tStart)
-	fmt.Printf("%d cycles in %v (%8.2f cycles/second)\n", y4.cyc, d, float64(y4.cyc) / d.Seconds())
+
+	fmt.Println("halt")
+	if blockedForInput {
+		fmt.Printf("%d cycles executed\n", y4.cyc)
+	} else {
+		fmt.Printf("%d cycles in %s (%6.0f cycles/second)\n", y4.cyc,
+					d.Round(time.Millisecond).String(),
+					float64(y4.cyc) / d.Seconds())
+	}
 	y4.dump()
 	return nil
+}
+
+// Prompt the user for input and return false if the sim should halt
+func prompt() bool {
+	blockedForInput = true
+
+	var c []byte = []byte{0}
+	loop: for {
+		fmt.Printf("[h c s x] sim> ")
+		os.Stdin.Read(c)
+		switch c[0] {
+		case 'h':
+			fmt.Printf("h - help\nc - continue\ns - single step\nx - exit\n")
+		case 'c':
+			dbEnabled = false
+			break loop
+		case 's':
+			dbEnabled = true
+			break loop
+		case 'x':
+			return false
+		}
+	}
+	return true
 }
 
 // I don't know exactly what I'm going to do for output from the
@@ -185,13 +229,11 @@ func (y4 *y4machine) dump() {
 	// provides a nice nonscrolling register dump, but erases all
 	// the debugging output. Something better is required.
 	//
-	//if !dbEnabled {
-	//	fmt.Printf("\033[2J\033[0;0H")
-	//}
+	// fmt.Printf("\033[2J\033[0;0H")
 	// ---
 
 	modeName := "user"
-	if y4.mode == 1 {
+	if y4.mode == Kern {
 		modeName = "kern"
 	}
 	fmt.Printf("Run %t mode %s cycle %d alu = 0x%04X pc = %d exception = 0x%04X\n",

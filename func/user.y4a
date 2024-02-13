@@ -3,7 +3,7 @@
 ; per second estimator.
 
 	lsi r1, 0
-	lsi r2, 10
+	lsi r2, 50
 
 inner:
 	adi r1, r1, -1
@@ -13,8 +13,8 @@ inner:
 outer:
 	adi r2, r2, -1
 	beq r2, r0, done
-	brk
+	; brk ; uncomment to produce r2 number of register dumps
 	beq r0, r0, inner
 
 done:
-	die
+	hlt
