@@ -8,14 +8,14 @@
 ; The second group of 16 are injected by hardware or unused.
 
 	jmp r5, _reset		; sys 0 - reset vector
-	jmp r5, _fastsys	; sys 1 - fast system calls
-	jmp r5, _syscall	; sys 2 - system calls
-	jmp r5, _badsys
+	jmp r5, _fastsys	; sys 2 - fast system calls
+	jmp r5, _syscall	; sys 4 - system calls
+	jmp r5, _badsys		; sys 6 - not used
 
-	jmp r5, _badsys		; sys 8
-	jmp r5, _badsys
-	jmp r5, _badsys
-	jmp r5, _badsys
+	jmp r5, _badsys		; sys 8 - not used
+	jmp r5, _badsys		; sys 10 - not used
+	jmp r5, _badsys		; sys 12 - not used
+	jmp r5, _badsys		; sys 14 - not used
 
 	jmp r5, _badsys		; sys 16
 	jmp r5, _badsys
@@ -77,7 +77,45 @@ _badtrap:	; undefined hardware fault
 
 _illegal:	; TODO illegal instruction fault
 	die
-_fastsys:	; TODO fast read-only system calls
-	die
+_syserr:
+	die		; TODO undefined system call
+
+; jump table for fastcalls. We just round it to the next
+; (power of 2) - 1 to make bounds checking really simple.
+_fasttab:
+#d16 _syserr ; sys FASTSYS ; 0 in r1 => error
+#d16 exit    ; sys FASTSYS ; 1 in r1, exit code in r2
+#d16 debug   ; sys FASTSYS ; 2 in r1
+#d16 putc    ; sys FASTSYS ; 3 in r1, byte in r2
+#d16 _syserr ; 4
+#d16 _syserr ; 5
+#d16 _syserr ; 6
+#d16 _syserr ; 7
+FASTTAB_MAX = 7
+
+_fastsys:	 ; TODO fast read-only system calls
+	; TODO copy user registers to kernel registers
+	add r4, r0, r1
+	lsi r5, FASTTAB_MAX
+	bic r4, r4, r5 ; argument &= ^FASTTAB_MAX
+	beq r4, r1, _1f ; if result != argument, skip
+	jmp r4, _syserr ; oops, bad argument
+_1f:
+	ldi	r4, _fasttab
+	add r4, r4, r1
+	jmp r4
+
 _syscall:	; TODO ordinary system calls that can move data
+	die
+
+; exit - exit code in r2
+exit:
+	hlt
+
+; debug - simulator register dump - no arguments
+debug:
+	brk
+
+; putc - byte in r2
+putc:
 	die

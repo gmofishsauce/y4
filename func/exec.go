@@ -20,13 +20,15 @@ package main
 // Fetch next instruction into ir.
 func (y4 *y4machine) fetch() {
 	if y4.ex != 0 {
-		// As a convenience, double fault is handled in the main loop.
+		// double fault should have been handled in main loop.
 		assert(y4.en, "double fault in fetch()")
 
 		// an exception occurred during the previous cycle.
+		y4.reg[Kern].spr[Irr] = y4.pc
+		y4.reg[Kern].spr[Icr] = y4.ex
+		y4.reg[Kern].spr[Imr] = word(y4.mode)
+
 		y4.mode = Kern
-		y4.reg[y4.mode].spr[Irr] = y4.pc
-		y4.reg[y4.mode].spr[Icr] = y4.ex
 		y4.pc = word(y4.ex)
 		y4.en = false
 		y4.ex = 0
@@ -402,14 +404,17 @@ func (y4 *y4machine) alu1() {
 		y4.hc = 0
 	case 1: //neg
 		y4.alu = 1 + ^rs1
+		y4.hc = 0 // ???
 	case 2: //swb
 		y4.alu = rs1 >> 8 | rs1 << 8
+		y4.hc = 0
 	case 3: //sxt
 		if rs1&0x80 != 0 {
 			y4.alu = rs1 | 0xFF00
 		} else {
 			y4.alu = rs1 &^ 0xFF00
 		}
+		y4.hc = 0
 	case 4: //lsr
 		y4.hc = rs1&1
 		y4.alu = rs1 >> 1
@@ -433,19 +438,22 @@ func (y4 *y4machine) alu1() {
 // vops - 0 operand instructions
 
 func (y4 *y4machine) rti() {
+	if y4.mode == User {
+		y4.ex = ExIllegal
+		return
+	}
+
 	// This is acceptable because (1) the machine is not pipelined
 	// and (2) the instruction doesn't do anything else but this.
 	// In a pipelined implementation, this would be more complex.
-	// Also, enabling interrupts is wrong. The interrupt enable
-	// state must be saved in a control register which can be both
-	// read and written from kernelmode. Otherwise, ITFEs won't
-	// nest correctly. For now it's not an issue because the kernel
-	// doesn't support nesting.
+	// Also note that we can enable interrupts when returning from
+	// any interrupt or fault, because interrupts must have been
+	// enabled for the interrupt or fault to have been taken.
 	y4.ex = 0
 	y4.en = true
-	y4.pc = y4.reg[y4.mode].spr[Irr]
-	y4.reg[y4.mode].spr[Irr] = ExMachine
-	y4.mode = User
+	y4.pc = y4.reg[Kern].spr[Irr]
+	y4.reg[Kern].spr[Irr] = 0
+	y4.mode = byte(y4.reg[Kern].spr[Imr])
 }
 
 func (y4 *y4machine) rtl() {
@@ -453,18 +461,38 @@ func (y4 *y4machine) rtl() {
 }
 
 func (y4 *y4machine) di() {
+	if y4.mode == User {
+		y4.ex = ExIllegal
+		return
+	}
+
 	y4.en = false
 }
 
 func (y4 *y4machine) ei() {
+	if y4.mode == User {
+		y4.ex = ExIllegal
+		return
+	}
+
 	y4.en = true
 }
 
 func (y4 *y4machine) hlt() {
+	if y4.mode == User {
+		y4.ex = ExIllegal
+		return
+	}
+
 	y4.run = false
 }
 
 func (y4 *y4machine) brk() {
+	if y4.mode == User {
+		y4.ex = ExIllegal
+		return
+	}
+
 	// for now
 	y4.dump()
 }
@@ -474,5 +502,10 @@ func (y4 *y4machine) v06() {
 }
 
 func (y4 *y4machine) die() {
+	if y4.mode == User {
+		y4.ex = ExIllegal
+		return
+	}
+
 	y4.ex = ExIllegal
 }

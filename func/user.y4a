@@ -2,8 +2,13 @@
 ; or two to execute, providing a machine cycles
 ; per second estimator.
 
+#include "sys.y4a"
+
+; number of 64k loops
+DELAY = 100
+
 	lsi r1, 0
-	ldi r2, 128
+	ldi r2, DELAY
 
 inner:
 	adi r1, r1, -1
@@ -13,8 +18,10 @@ inner:
 outer:
 	adi r2, r2, -1
 	beq r2, r0, done
-	; brk ; uncomment to produce r2 number of register dumps
+	; lsi r1, SYS_DBG
+	; sys FASTSYS
 	beq r0, r0, inner
 
 done:
-	hlt
+	lsi r1, SYS_EXIT
+	sys FASTSYS

@@ -43,6 +43,7 @@ const PC = 0		// Special register 0 is PC
 const Link = 1		// Special register 1 is Link, per Mode
 const Irr = 2       // Kernel only interrupt return register SPR
 const Icr = 3		// Kernel only interrupt cause register SPR
+const Imr = 4		// Kernel only interrupt mode register SPR
 
 const User = 0		// Mode = User
 const Kern = 1		// Mode = Kernel
