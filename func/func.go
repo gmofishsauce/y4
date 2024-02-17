@@ -39,11 +39,13 @@ var uflag = flag.String("u", "", "user binary")
 const K = 1024
 const IOSize = 64	// 64 words of I/O space
 const SprSize = 64	// 64 special registers, per Mode
-const PC = 0		// Special register 0 is PC
+const PC = 0		// Special register 0 is PC, read-only
 const Link = 1		// Special register 1 is Link, per Mode
 const Irr = 2       // Kernel only interrupt return register SPR
 const Icr = 3		// Kernel only interrupt cause register SPR
 const Imr = 4		// Kernel only interrupt mode register SPR
+const CCLS = 6		// Cycle counter, lower short
+const CCMS = 7		// Cycle counter, most significant short
 
 const User = 0		// Mode = User
 const Kern = 1		// Mode = Kernel

@@ -53,8 +53,7 @@
 
 _reset:					; reset and start.
 	lsi r2, 2			; Spr address of Irr
-	lsi r1, 0			; 0 address in user code space
-	ssp r1, r2			; store in Irr
+	ssp r0, r2			; store 0 code address in Irr
 	rti					; return to usermode at 0 (start)
 
 _machine:				; TODO machine check
@@ -93,7 +92,7 @@ _fasttab:
 #d16 _syserr ; 7
 FASTTAB_MAX = 7
 
-_fastsys:	 ; TODO fast read-only system calls
+_fastsys:	 ; fast system calls
 	; TODO copy user registers to kernel registers
 	add r4, r0, r1
 	lsi r5, FASTTAB_MAX

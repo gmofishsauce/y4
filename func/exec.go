@@ -127,19 +127,97 @@ func (y4 *y4machine) memory() {
 		// no default
 		}
 	} else if y4.isYop { // special register or IO load or store
-		reg := &y4.reg[y4.mode]
 		switch y4.yop {
 		case 0: // lsp (load special)
-			y4.wb = reg.spr[y4.alu&(SprSize-1)]
+			y4.wb = y4.loadSpecial()
 		case 1: // lio (load from io)
-			y4.wb = y4.io[y4.alu&(IOSize-1)]
+			y4.wb = y4.loadIO()
 		case 2: // ssp (store special)
-			reg.spr[y4.alu&(SprSize-1)] = y4.sd
+			y4.storeSpecial(y4.sd)
 		case 3: // sio
-			y4.io[y4.alu&(IOSize-1)] = y4.sd
+			y4.storeIO(y4.sd)
 		// no default
 		}
 	}
+}
+
+// return the value of the special register addressed by the ALU result
+// from the previous stage. May set an exception, in which case the result
+// value doesn't matter because it won't be written back to a register.
+func (y4 *y4machine) loadSpecial() word {
+	r := y4.alu&(SprSize-1) // 0..63
+	switch r { // no default
+	case PC:
+		return y4.pc
+	case Link:
+		return y4.reg[y4.mode].spr[Link]
+	case Irr, Icr, Imr, 5:
+		if y4.mode == Kern {
+			return y4.reg[y4.mode].spr[r]
+		}
+		y4.ex = ExIllegal
+		return 0
+	case CCLS:
+		return word(y4.cyc&0xFFFF)
+	case CCMS:
+		return word((y4.cyc&0xFFFF0000) >> 16)
+	}
+	if y4.mode == User {
+		y4.ex = ExIllegal
+		return 0
+	}
+	switch {
+	case r >= 8 && r < 16: // unused SPRs
+		return 0; 
+	case r >= 16 && r < 24: // user general registers
+		return y4.reg[User].gen[r-16]
+	case r >= 24 && r < 31: // user special registers
+		if r == 25 { // user link register
+			// Could allow the kernel to access the PC
+			// here, or CCLS/CCMS, but it's stupid.
+			return y4.reg[User].spr[Link]
+		}
+	case r >= 32:	// MMU - details TBD
+		TODO()
+		return 0
+	}
+	// All the cases should have been handled,
+	// so this should not be reachable.
+	assert(false, "missing case in loadSpecial()")
+	return 0
+}
+
+func (y4 *y4machine) loadIO() word {
+	TODO()
+	return 0
+}
+
+func (y4 *y4machine) storeSpecial(val word) {
+	r := y4.alu&(SprSize-1) // 0..63
+	if y4.mode == User {
+		if r == Link { // usermode can write its link register
+			y4.reg[User].spr[Link] = val
+		} else {
+			y4.ex = ExIllegal
+		}
+		return
+	}
+	switch {
+	case r == Irr, r == Icr, r == Imr, r == 5:
+		y4.reg[Kern].spr[r] = val
+	case r >= 16 && r < 24: // set user general register
+		y4.reg[User].gen[r-16] = val
+	case r == 25:
+		y4.reg[User].spr[Link] = val
+	case r >= 32:	// MMU - details TBD
+		TODO()
+	default:
+		y4.ex = ExIllegal // likely double fault
+	}
+}
+
+func (y4 *y4machine) storeIO(val word) {
+	TODO()
 }
 
 // Write the result (including possible memory result) to a register.
