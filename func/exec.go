@@ -34,15 +34,22 @@ func (y4 *y4machine) fetch() {
 		y4.ex = 0
 	}
 
-	mem := &y4.mem[y4.mode]
-	y4.ir = mem.imem[y4.pc]
+	//lower := y4.pc&0xFFF MEM
+	//upper := y4.reg[y4.mode].spr[(y4.pc>>12)&0xF]&0xFFF MEM
+
+	physAddr := y4.translate(false, uint16(y4.pc))
+	if physAddr >= PhysMemSize {
+		y4.ex = ExMemory
+		return
+	}
+	y4.ir = physmem[physAddr]
+
+	// mem := &y4.mem[y4.mode] MEM
+	// y4.ir = mem.imem[y4.pc] MEM
 
 	// Control flow instructions will overwrite this in a later stage.
 	// This implementation is sequential (does everything each clock cycle).
 	y4.pc++
-	if y4.pc == 0 {
-		y4.ex = ExMachine // machine check - PC wrapped		
-	}
 }
 
 // Pull out all the possible distinct field types into uint16s. The targets
@@ -51,6 +58,11 @@ func (y4 *y4machine) fetch() {
 // decoded values. Plausible additional decoding (which instructions have
 // targets? Which target special registers?) is left to the execution code.
 func (y4 *y4machine) decode() {
+	if y4.ex != 0 {
+		// There was an exception during fetch
+		return
+	}
+
 	y4.op = y4.ir.bits(15,13)	// base opcode
 	y4.imm = y4.sxtImm()
 
@@ -105,25 +117,62 @@ func (y4 *y4machine) memory() {
 		return
 	}
 
-	// We always set the writeback register to the alu output. It
-	// gets overwritten in the code below by memory, io, or spr
-	// read, if any. In the writeback stage, it gets used, or it
-	// just doesn't, depending on the instruction.
+	// Default the writeback register to the alu output. It gets
+	// overwritten in the code below by memory, io, or spr read,
+	// if any. In the writeback stage, it gets used, or it just
+	// doesn't, depending on the instruction.
 	y4.wb = word(y4.alu)
 
 	if y4.op < 4 { // general register load or store
-		mem := &y4.mem[y4.mode]
+		// mem := &y4.mem[y4.mode] MEM
+		/* MEM
+			lower := y4.pc&0xFFF
+			upper := y4.reg[y4.mode].spr[(y4.pc>>12)&0xF]&0xFFF
+		 */
+		addr := y4.translate(true, y4.alu)
+		if addr >= PhysMemSize {
+			y4.ex = ExMemory
+			return
+		}
+
 		switch y4.op {
 		case 0:  // ldw
-			y4.wb = word(mem.dmem[y4.alu])
-			y4.wb |= word(mem.dmem[y4.alu+1]) << 8
+			if addr&1 != 0 {
+				y4.ex = ExMemory
+				break
+			}
+			y4.wb = physmem[addr]
+			//y4.wb = word(mem.dmem[y4.alu]) MEM
+			//y4.wb |= word(mem.dmem[y4.alu+1]) << 8 MEM
 		case 1:  // ldb
-			y4.wb = word(mem.dmem[y4.alu])
+			memWord := physmem[addr&^1]
+			if addr&1 != 0 {
+				y4.wb = memWord>>8
+			} else {
+				y4.wb = memWord&0xFF
+			}
 		case 2:  // stw
+			if addr&1 != 0 {
+				y4.ex = ExMemory
+				break
+			}
+			physmem[addr] = y4.sd
+			/* MEM
 			mem.dmem[y4.alu] = byte(y4.sd&0x00FF)
 			mem.dmem[y4.alu+1] = byte(y4.sd>>8)
+			*/
 		case 3:  // stb
-			mem.dmem[y4.alu] = byte(y4.sd)
+			// mem.dmem[y4.alu] = byte(y4.sd) MEM
+			memWord := physmem[addr&^1]
+			if addr&1 != 0 {
+				memWord &= 0xFF
+				memWord |= (y4.sd<<8)
+				physmem[addr&^1] = memWord
+			} else {
+				memWord &= 0xFF00
+				memWord |= y4.sd&0xFF
+				physmem[addr] = memWord
+			}
 		// no default
 		}
 	} else if y4.isYop { // special register or IO load or store

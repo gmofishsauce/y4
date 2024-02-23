@@ -64,10 +64,16 @@ const ExIllegal word = 32 // illegal instruction
 const ExMemory word = 48  // Page fault or unaligned access
 const ExMachine word = 62 // machine check
 
+type physaddr uint32	  // physical addresses are 24 bits
+const PhysMemSize = 512*K // probably 2048K in hardware
+var physmem [PhysMemSize]word // bytes require extraction
+
+/* MEM
 type y4mem struct { // per mode
 	imem []word // code space
 	dmem []byte // data space
 }
+*/
 
 type y4reg struct { // per mode
 	gen []word // general registers
@@ -76,7 +82,7 @@ type y4reg struct { // per mode
 
 type y4machine struct {
 	cyc uint64  // cycle counter
-	mem []y4mem // [0] is user space, [1] is kernel
+	// mem []y4mem // [0] is user space, [1] is kernel  MEM
 	reg []y4reg // [0] is user space, [1] is kernel
 	io  []word	// i/o space, accesible only in kernel mode
 	pc word
@@ -104,10 +110,12 @@ type y4machine struct {
 }
 
 var y4 y4machine = y4machine {
+	/* MEM
 	mem: []y4mem{
 		{imem: make([]word, 64*K, 64*K), dmem: make([]byte, 64*K, 64*K)}, // user
 		{imem: make([]word, 64*K, 64*K), dmem: make([]byte, 64*K, 64*K)}, // kernel
 	},
+	*/
 	reg: []y4reg{
 		{gen: make([]word, 8, 8), spr: make([]word, SprSize, SprSize)}, // user
 		{gen: make([]word, 8, 8), spr: make([]word, SprSize, SprSize)}, // kernel
@@ -143,6 +151,9 @@ func main() {
 	if err := y4.load(Kern, args[0]); err != nil {
 		fatal(fmt.Sprintf("loading %s: %s", args[0], err.Error()))
 	}
+	y4.core("core")
+	os.Exit(5)
+
 	if len(*uflag) != 0 {
 		if err := y4.load(User, *uflag); err != nil {
 			fatal(fmt.Sprintf("loading %s: %s", *uflag, err.Error()))
@@ -162,7 +173,7 @@ func main() {
 	y4.reset()
 	err = y4.simulate()
 	if err != nil {
-		// This represents some kind of internal error, not error in program
+		// Some kind of internal error, not error in simulated program
 		fatal(fmt.Sprintf("error: running %s: %s", args[0], err.Error()))
 	}
 	dbg("done")
@@ -285,6 +296,7 @@ func (y4 *y4machine) dump() {
 		fmt.Printf("%04X%s", y4.reg[1].spr[i], spOrNL(i < 7))
 	}
 
+	/* FIXME
 	mem := &y4.mem[y4.mode] // user or kernel
 	off := int(y4.pc & 0xFFF8)
 	fmt.Printf(headerFormat, fmt.Sprintf("imem@0x%04X", off))
@@ -300,6 +312,7 @@ func (y4 *y4machine) dump() {
 	for i := 0; i < 8; i++ {
 		fmt.Printf("%04X%s", mem.dmem[off+i], spOrNL(i < 7))
 	}
+	*/
 }
 
 func spOrNL(sp bool) string {

@@ -21,8 +21,8 @@ along with this program. If not, see http://www.gnu.org/licenses/.
 */
 
 import (
-	"bytes"
 	"encoding/binary"
+	"fmt" // fmt.Errorf only
 	"io"
 	"os"
 )
@@ -31,6 +31,33 @@ import (
 // Example: w := 0xFDFF ; w.bits(10,8) == uint16(5)
 func (w word) bits(hi int, lo int) uint16 {
 	return uint16(w>>lo) & uint16(1<<(hi-lo+1)-1)
+}
+
+// Virtual to physical address translation. There are two MMUs,
+// one for kernel and one for user mode. Each MMU is at offset
+// 32 in the respective arrays of 64 SPRs. The first 16 entries
+// map 64k words of code space. The second 16 SPRs map 64k bytes
+// of data space. Physical addresses are 24 bits long, allowing
+// 16Mib of physical data memory and 16MiWords of code memory.
+// The lower 12 bits of virtual address become part of the physical
+// address. The upper 4 bits of virtual address are used to select
+// one of the 16 MMU registers for that (mode, kind) pair. The
+// lower 12 bits of the selected MMU register become the upper 12
+// bits of the 24-bit physical address.
+//
+// It's cheesy using a bool for the 2-element enum {code, data}.
+// But adding to that enum would require a major change to the
+// WUT-4 architecture, i.e. this would be the least of my worries.
+func (y4 *y4machine) translate(isData bool, virtAddr uint16) physaddr {
+	var sprOffset uint16 = 32
+	if isData {
+		sprOffset += 16
+	}
+	sprOffset += (virtAddr>>12) // 0..15
+
+	mmu := y4.reg[y4.mode].spr
+	var upper uint16 = uint16(mmu[sprOffset]&0xFFF)
+	return physaddr((upper<<12)|(virtAddr&0xFFF))
 }
 
 // Reset the simulated hardware
@@ -66,6 +93,71 @@ func (y4 *y4machine) sxtImm() uint16 {
 	return result
 }
 
+func (y4 *y4machine) load(mode int, binPath string) error {
+    f, err := os.Open(binPath)
+    if err != nil {
+        return err
+    }
+    defer f.Close()
+
+	maxSizeBytes := 3*64*K
+	fi, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	size := int(fi.Size())
+	if size > maxSizeBytes {
+		return fmt.Errorf("not a binary: %s", binPath)
+	}
+	
+	off := 0
+	if mode == User {
+		off += maxSizeBytes / 2
+	}
+
+	var b []byte = []byte{0}
+	var nRead int
+
+	for {
+		n, err := f.Read(b)
+		if err != nil && err != io.EOF {
+			break
+		}
+		if n == 0 {
+			break
+		}
+		nRead++
+		if nRead&1 == 0 {
+			physmem[off] = word(b[0])
+		} else {
+			physmem[off] |= word(b[0])<<8
+			off++
+		}
+	}
+
+	if err == io.EOF {
+		err = nil
+	}
+	if err != nil {
+		return err
+	}
+	if nRead != size {
+		return fmt.Errorf("load didn't read the entire file")
+	}
+	return nil
+}
+
+func (y4 *y4machine) core(corePath string) error {
+    f, err := os.Create(corePath)
+    if err != nil {
+        return err
+    }
+    defer f.Close()
+
+	return binary.Write(f, binary.LittleEndian, physmem)
+}
+
+/* MEM
 // For now, we accept the output of customasm directly. The bin file has
 // no file header. There are 1 or 2 sections in the file. Code is at file
 // offset 0 for a maximum length of 64k 2-byte words. Initialized Data,
@@ -135,3 +227,4 @@ func readChunk(f *os.File, buf []byte, pos int64, b []byte, w []word) (int, erro
 	return n, nil
 }
 
+MEM */
