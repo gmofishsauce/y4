@@ -210,7 +210,9 @@ func (y4 *y4machine) loadSpecial() word {
 		return 0
 	}
 	switch {
-	case r >= 8 && r < 16: // unused SPRs
+	case r == MmuCtl1:
+		return y4.reg[Kern].spr[r]
+	case r > 8 && r < 16: // unused SPRs
 		return 0; 
 	case r >= 16 && r < 24: // user general registers
 		return y4.reg[User].gen[r-16]
@@ -220,9 +222,12 @@ func (y4 *y4machine) loadSpecial() word {
 			// here, or CCLS/CCMS, but it's stupid.
 			return y4.reg[User].spr[Link]
 		}
-	case r >= 32:	// MMU - details TBD
-		TODO()
-		return 0
+	case r >= 32:// MMU - MmuCtl1 gives kern access to user
+		if y4.reg[Kern].spr[MmuCtl1] & 0x10 != 0 {
+			return y4.reg[User].spr[r]
+		} else {
+			return y4.reg[Kern].spr[r]
+		}
 	}
 	// All the cases should have been handled,
 	// so this should not be reachable.
@@ -246,14 +251,18 @@ func (y4 *y4machine) storeSpecial(val word) {
 		return
 	}
 	switch {
-	case r == Irr, r == Icr, r == Imr, r == 5:
+	case r == Irr, r == Icr, r == Imr, r == 5, r == MmuCtl1:
 		y4.reg[Kern].spr[r] = val
 	case r >= 16 && r < 24: // set user general register
 		y4.reg[User].gen[r-16] = val
-	case r == 25:
+	case r == 25: // set user link register
 		y4.reg[User].spr[Link] = val
-	case r >= 32:	// MMU - details TBD
-		TODO()
+	case r >= 32: // set MMU entry, MmuCtl1&0x10 gives kernel access to user
+		if y4.reg[Kern].spr[MmuCtl1] & 0x10 != 0 {
+			y4.reg[User].spr[r] = val
+		} else {
+			y4.reg[Kern].spr[r] = val
+		}
 	default:
 		y4.ex = ExIllegal // likely double fault
 	}

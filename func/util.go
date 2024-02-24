@@ -94,6 +94,7 @@ func (y4 *y4machine) sxtImm() uint16 {
 	return result
 }
 
+// Load a binary into memory.
 func (y4 *y4machine) load(mode int, binPath string) error {
     f, err := os.Open(binPath)
     if err != nil {
@@ -158,74 +159,3 @@ func (y4 *y4machine) core(corePath string) error {
 	return binary.Write(f, binary.LittleEndian, physmem)
 }
 
-/* MEM
-// For now, we accept the output of customasm directly. The bin file has
-// no file header. There are 1 or 2 sections in the file. Code is at file
-// offset 0 for a maximum length of 64k 2-byte words. Initialized Data,
-// if present, is at offset 128 kiB for a maximum length of 64kibB. Since
-// the machine initializes in kernel mode, kernel code is mandatory; this
-// is handled in main(). If a user mode binary is present for this simulation
-// run, it results in a second call to this function.
-func (y4 *y4machine) load(mode int, binPath string) error {
-	f, err := os.Open(binPath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	// I looked at using encoding.binary.Read() directly on the binfile
-	// but because it doesn't return a byte count, checking for the
-	// partial read at the end of the file based on error types is messy. 
-
-	var buf []byte = make([]byte, 64*K, 64*K)
-	var n int
-
-	if n, err = readChunk(f, buf, 0, nil, y4.mem[mode].imem[0:64*K/2]); err != nil {
-		return err
-	}
-	if n < len(buf) {
-		return nil
-	}
-
-	if n, err = readChunk(f, buf, 64*K, nil, y4.mem[mode].imem[64*K/2:64*K]); err != nil {
-		return err
-	}
-	if n < len(buf) {
-		return nil
-	}
-
-	if n, err = readChunk(f, buf, 128*K, y4.mem[mode].dmem[0:64*K], nil); err != nil {
-		return err
-	}
-	return nil
-}
-
-// Read a chunk of f at offset pos and decode it into either b or w. One of
-// b or w must be nil on each call and the other is the decoding target (so
-// just a nil check is required instead of RTTI).
-//
-// This function either returns a positive count or an error, but not both.
-// If the count is short, the read hit EOF and was successfully decoded into
-// the buffer. No error is returned.
-func readChunk(f *os.File, buf []byte, pos int64, b []byte, w []word) (int, error) {
-    n, err := f.ReadAt(buf, pos)
-	// "ReadAt always returns a non-nil error when n < len(b)." (Docs)
-    if n == 0 || (err != nil && err != io.EOF) {
-        return 0, err
-    }
-
-	// Now if n < len(buf), err is io.EOF but we don't care.
-    r := bytes.NewReader(buf)
-	if b != nil {
-		err = binary.Read(r, binary.LittleEndian, b[0:n])
-	} else {
-		err = binary.Read(r, binary.LittleEndian, w[0:n/2])
-	}
-	if err != nil {
-		// The decoder shouldn't fail. Say we got no data.
-		return 0, err
-	}
-	return n, nil
-}
-
-MEM */

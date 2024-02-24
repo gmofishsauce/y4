@@ -46,6 +46,8 @@ const Icr = 3		// Kernel only interrupt cause register SPR
 const Imr = 4		// Kernel only interrupt mode register SPR
 const CCLS = 6		// Cycle counter, lower short
 const CCMS = 7		// Cycle counter, most significant short
+const MmuCtl1 = 8	// MMU control register. 1 enables access ctl,
+					// 0x10 enables kernelmode write user MME regs
 
 const User = 0		// Mode = User
 const Kern = 1		// Mode = Kernel

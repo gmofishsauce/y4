@@ -69,6 +69,21 @@
 ; into usermode.
 
 _reset:					; reset and start.
+	lsi r2, 8			; 8 is MmuCtl1 (need defs)
+	lsi r1, 0x10		; 0x10 gives kernel access to user MMU
+	ssp r1, r2			; write to spr
+
+	ldi r1, 0x30		; 0x30_000 = 192k where loader put user code
+	lsi r2, 32			; first code MMU register
+	ssp r1, r2			; store 0x30 to user MMU[0] because MmuCtl1 == 0x10
+
+	ldi r1, 0x40		; 0x40_000 = 256k where loader put user data
+	lsi r2, 48			; first data MMU register
+	ssp r1, r2			; store 0x40 to user MMU[16] because MmuCtl1 == 0x10
+
+	lsi r2, 8			; MmuCtl1 register
+	ssp r0, r2			; store 0 there so we don't write to user MMU by accident
+
 	lsi r2, 2			; Spr address of Irr
 	ssp r0, r2			; store 0 code address in Irr
 	rti					; return to usermode at 0 (start)
