@@ -34,18 +34,12 @@ func (y4 *y4machine) fetch() {
 		y4.ex = 0
 	}
 
-	//lower := y4.pc&0xFFF MEM
-	//upper := y4.reg[y4.mode].spr[(y4.pc>>12)&0xF]&0xFFF MEM
-
-	physAddr := y4.translate(false, uint16(y4.pc))
+	physAddr := y4.translate(false, y4.pc)
 	if physAddr >= PhysMemSize {
 		y4.ex = ExMemory
 		return
 	}
 	y4.ir = physmem[physAddr]
-
-	// mem := &y4.mem[y4.mode] MEM
-	// y4.ir = mem.imem[y4.pc] MEM
 
 	// Control flow instructions will overwrite this in a later stage.
 	// This implementation is sequential (does everything each clock cycle).
@@ -129,7 +123,7 @@ func (y4 *y4machine) memory() {
 			lower := y4.pc&0xFFF
 			upper := y4.reg[y4.mode].spr[(y4.pc>>12)&0xF]&0xFFF
 		 */
-		addr := y4.translate(true, y4.alu)
+		addr := y4.translate(true, word(y4.alu))
 		if addr >= PhysMemSize {
 			y4.ex = ExMemory
 			return

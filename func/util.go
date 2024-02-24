@@ -48,16 +48,17 @@ func (w word) bits(hi int, lo int) uint16 {
 // It's cheesy using a bool for the 2-element enum {code, data}.
 // But adding to that enum would require a major change to the
 // WUT-4 architecture, i.e. this would be the least of my worries.
-func (y4 *y4machine) translate(isData bool, virtAddr uint16) physaddr {
-	var sprOffset uint16 = 32
+func (y4 *y4machine) translate(isData bool, virtAddr word) physaddr {
+	sprOffset := 32
 	if isData {
 		sprOffset += 16
 	}
-	sprOffset += (virtAddr>>12) // 0..15
+	sprOffset += int(virtAddr>>12)
 
 	mmu := y4.reg[y4.mode].spr
-	var upper uint16 = uint16(mmu[sprOffset]&0xFFF)
-	return physaddr((upper<<12)|(virtAddr&0xFFF))
+	upper := physaddr(mmu[sprOffset]&0xFFF)
+	lower := physaddr(virtAddr&0xFFF)
+	return (upper<<12)|lower
 }
 
 // Reset the simulated hardware
@@ -126,13 +127,13 @@ func (y4 *y4machine) load(mode int, binPath string) error {
 		if n == 0 {
 			break
 		}
-		nRead++
 		if nRead&1 == 0 {
 			physmem[off] = word(b[0])
 		} else {
 			physmem[off] |= word(b[0])<<8
 			off++
 		}
+		nRead++
 	}
 
 	if err == io.EOF {

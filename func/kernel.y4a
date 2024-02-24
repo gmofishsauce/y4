@@ -51,6 +51,23 @@
 
 ; Word 64 in memory. End of vectors. Begin code.
 
+; Reset the system. The architecture guarantees only that at hardware
+; initialization, the WUT-4 will be placed in kernel mode, will begin
+; execution at 0, and that the MMU will map physical page 0 at both
+; code address 0 and data address 0. The simulator actually initializes 
+; all the MMU registers to 0.
+;
+; The reset code here maps user code page 0 at physical address 192*1024
+; and user data page 0 at physical address 256*1024. This matches the
+; behavior of the program loader built into the simulator and allows
+; small test programs with up to 4k of code and 4k of data to execute
+; in usermode without any other kernel memory management support.
+;
+; TODO implement an MMU control register so the kernel can write into
+; the usermode MMU registers. Put 48 in the user MMU register 0 (address
+; 192k) and 64 in the user MMU register 16 (address 256k). Then return
+; into usermode.
+
 _reset:					; reset and start.
 	lsi r2, 2			; Spr address of Irr
 	ssp r0, r2			; store 0 code address in Irr

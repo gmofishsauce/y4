@@ -151,9 +151,6 @@ func main() {
 	if err := y4.load(Kern, args[0]); err != nil {
 		fatal(fmt.Sprintf("loading %s: %s", args[0], err.Error()))
 	}
-	y4.core("core")
-	os.Exit(5)
-
 	if len(*uflag) != 0 {
 		if err := y4.load(User, *uflag); err != nil {
 			fatal(fmt.Sprintf("loading %s: %s", *uflag, err.Error()))
@@ -210,7 +207,7 @@ func (y4 *y4machine) simulate() error {
 		}
 		if dbEnabled {
 			y4.dump()
-			y4.run = prompt()
+			y4.run = prompt(y4)
 		}
 	}
 	d := time.Since(tStart)
@@ -239,17 +236,20 @@ func (y4 *y4machine) simulate() error {
 }
 
 // Prompt the user for input and return false if the sim should halt
-func prompt() bool {
+func prompt(y4 *y4machine) bool {
+	// Disable timing if we ever prompt during a simulation run
 	blockedForInput = true
 
 	var c []byte = make([]byte, 80, 80)
 	loop: for {
-		fmt.Printf("\n[h c s x] sim> ")
+		fmt.Printf("\n[h c r s x] sim> ")
 		os.Stdin.Read(c)
 		switch c[0] {
-		case 'h':
-			fmt.Printf("h - help\nc - continue\ns - single step\nx - exit\n")
 		case 'c':
+			y4.core("core")
+		case 'h':
+			fmt.Printf("h - help\nc - core\nr - run\ns - single step\nx - exit\n")
+		case 'r':
 			dbEnabled = false
 			break loop
 		case 's':
@@ -296,23 +296,20 @@ func (y4 *y4machine) dump() {
 		fmt.Printf("%04X%s", y4.reg[1].spr[i], spOrNL(i < 7))
 	}
 
-	/* FIXME
-	mem := &y4.mem[y4.mode] // user or kernel
-	off := int(y4.pc & 0xFFF8)
-	fmt.Printf(headerFormat, fmt.Sprintf("imem@0x%04X", off))
-	for i := 0; i < 8; i++ {
-		fmt.Printf("%04X%s", mem.imem[off+i], spOrNL(i < 7))
+	codeAddr := y4.translate(false, y4.pc)&0xFFFC
+	fmt.Printf(headerFormat, fmt.Sprintf("imem@0x%04X", codeAddr))
+	for i := physaddr(0); i < 8; i++ {
+		fmt.Printf("%04X%s", physmem[codeAddr+i], spOrNL(i < 7))
 	}
 	
 	// For lack of a better answer, print the memory row at 0.
 	// This at least gives 8 deterministic locations for putting
 	// the results of tests
-	off = 0 // was: int(y4.alu & 0xFFF8)
-	fmt.Printf(headerFormat, fmt.Sprintf("dmem@0x%04X", off))
-	for i := 0; i < 8; i++ {
-		fmt.Printf("%04X%s", mem.dmem[off+i], spOrNL(i < 7))
+	dataAddr := y4.translate(true, 0)
+	fmt.Printf(headerFormat, fmt.Sprintf("dmem@0x%04X", dataAddr))
+	for i := physaddr(0); i < 8; i++ {
+		fmt.Printf("%04X%s", physmem[dataAddr+i], spOrNL(i < 7))
 	}
-	*/
 }
 
 func spOrNL(sp bool) string {
