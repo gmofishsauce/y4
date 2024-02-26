@@ -18,8 +18,8 @@ License along with this program. If not, see
 package main
 
 import (
-	"fmt"
 	"flag"
+	"fmt"
 	"os"
 	"os/signal"
 	"runtime/pprof"
@@ -37,20 +37,20 @@ var uflag = flag.String("u", "", "user binary")
 // Functional simulator for y4 instruction set
 
 const K = 1024
-const IOSize = 64	// 64 words of I/O space
-const SprSize = 64	// 64 special registers, per Mode
-const PC = 0		// Special register 0 is PC, read-only
-const Link = 1		// Special register 1 is Link, per Mode
-const Irr = 2       // Kernel only interrupt return register SPR
-const Icr = 3		// Kernel only interrupt cause register SPR
-const Imr = 4		// Kernel only interrupt mode register SPR
-const CCLS = 6		// Cycle counter, lower short
-const CCMS = 7		// Cycle counter, most significant short
-const MmuCtl1 = 8	// MMU control register. 1 enables access ctl,
-					// 0x10 enables kernelmode write user MME regs
+const IOSize = 64  // 64 words of I/O space
+const SprSize = 64 // 64 special registers, per Mode
+const PC = 0       // Special register 0 is PC, read-only
+const Link = 1     // Special register 1 is Link, per Mode
+const Irr = 2      // Kernel only interrupt return register SPR
+const Icr = 3      // Kernel only interrupt cause register SPR
+const Imr = 4      // Kernel only interrupt mode register SPR
+const CCLS = 6     // Cycle counter, lower short
+const CCMS = 7     // Cycle counter, most significant short
+const MmuCtl1 = 8  // MMU control register. 1 enables access ctl,
+// 0x10 enables kernelmode write user MME regs
 
-const User = 0		// Mode = User
-const Kern = 1		// Mode = Kernel
+const User = 0 // Mode = User
+const Kern = 1 // Mode = Kernel
 
 type word uint16
 
@@ -66,9 +66,9 @@ const ExIllegal word = 32 // illegal instruction
 const ExMemory word = 48  // Page fault or unaligned access
 const ExMachine word = 62 // machine check
 
-type physaddr uint32	  // physical addresses are 24 bits
-const PhysMemSize = 6*64*K // probably 2048K in hardware
-var physmem [PhysMemSize]word // bytes require extraction
+type physaddr uint32           // physical addresses are 24 bits
+const PhysMemSize = 6 * 64 * K // probably 2048K in hardware
+var physmem [PhysMemSize]word  // bytes require extraction
 
 type y4reg struct { // per mode
 	gen []word // general registers
@@ -78,32 +78,32 @@ type y4reg struct { // per mode
 type y4machine struct {
 	cyc uint64  // cycle counter
 	reg []y4reg // [0] is user space, [1] is kernel
-	io  []word	// i/o space, accesible only in kernel mode
-	pc word
+	io  []word  // i/o space, accesible only in kernel mode
+	pc  word
 
 	// Non-architectural state that persists beyond an instruction
-	run bool    // run/stop flag
-	en bool     // true if interrupts are enabled
-	mode byte   // current mode, user = 0, kernel = 1
+	run  bool // run/stop flag
+	en   bool // true if interrupts are enabled
+	mode byte // current mode, user = 0, kernel = 1
 
 	// Non-architectural state used within an instruction
-	alu uint16  // temporary alu result register; memory address
-	sd word     // memory source data register set at execute
-	wb word     // writeback register set at execute or memory
-	ex word		// exception code
-	ir word     // instruction register
-	hc uint16   // hidden carry bit, 1 or 0
+	alu uint16 // temporary alu result register; memory address
+	sd  word   // memory source data register set at execute
+	wb  word   // writeback register set at execute or memory
+	ex  word   // exception code
+	ir  word   // instruction register
+	hc  uint16 // hidden carry bit, 1 or 0
 
 	// These variables are part of the combinational logic.
 	// The are set at decode time and used at execute, memory,
 	// or writeback time.
-	op, imm uint16
-	xop, yop, zop, vop uint16
+	op, imm                            uint16
+	xop, yop, zop, vop                 uint16
 	isXop, isYop, isZop, isVop, isBase bool
-	ra, rb, rc uint16
+	ra, rb, rc                         uint16
 }
 
-var y4 y4machine = y4machine {
+var y4 y4machine = y4machine{
 	reg: []y4reg{
 		{gen: make([]word, 8, 8), spr: make([]word, SprSize, SprSize)}, // user
 		{gen: make([]word, 8, 8), spr: make([]word, SprSize, SprSize)}, // kernel
@@ -116,26 +116,26 @@ func main() {
 
 	flag.Parse()
 	args := flag.Args()
-    if len(args) != 1 { // kernel mode binary file is mandatory
-        usage()
-    }
+	if len(args) != 1 { // kernel mode binary file is mandatory
+		usage()
+	}
 
 	if *pflag {
 		if *dflag {
 			fatal("cannot profile and debug at the same time")
 		}
-        f, err := os.Create("cpu.prof")
-        if err != nil {
-            fatal(fmt.Sprintf("could not create CPU profile: ", err))
-        }
-        defer f.Close()
-        if err := pprof.StartCPUProfile(f); err != nil {
-            fatal(fmt.Sprintf("could not start CPU profile: ", err))
-        }
-        defer pprof.StopCPUProfile()
+		f, err := os.Create("cpu.prof")
+		if err != nil {
+			fatal(fmt.Sprintf("could not create CPU profile: ", err))
+		}
+		defer f.Close()
+		if err := pprof.StartCPUProfile(f); err != nil {
+			fatal(fmt.Sprintf("could not start CPU profile: ", err))
+		}
+		defer pprof.StopCPUProfile()
 	}
 
-    dbEnabled = *dflag
+	dbEnabled = *dflag
 	if err := y4.load(Kern, args[0]); err != nil {
 		fatal(fmt.Sprintf("loading %s: %s", args[0], err.Error()))
 	}
@@ -186,7 +186,7 @@ func (y4 *y4machine) simulate() error {
 		y4.run = prompt(y4)
 	}
 	tStart := time.Now()
-	for y4.cyc++ ; y4.run ; y4.cyc++ {
+	for y4.cyc++; y4.run; y4.cyc++ {
 		y4.fetch()
 		y4.decode()
 		y4.execute()
@@ -219,8 +219,8 @@ func (y4 *y4machine) simulate() error {
 	msg = fmt.Sprintf("%d cycles executed", y4.cyc)
 	if !blockedForInput { // noninteractive run: print time
 		msg += fmt.Sprintf(" in %s (%1.3fMHz)",
-					d.Round(time.Millisecond).String(),
-					(float64(y4.cyc)/1e6) / d.Seconds())
+			d.Round(time.Millisecond).String(),
+			(float64(y4.cyc)/1e6)/d.Seconds())
 	}
 	fmt.Println(msg)
 	return nil
@@ -232,7 +232,8 @@ func prompt(y4 *y4machine) bool {
 	blockedForInput = true
 
 	var c []byte = make([]byte, 80, 80)
-	loop: for {
+loop:
+	for {
 		fmt.Printf("\n[h c r s x] sim> ")
 		os.Stdin.Read(c)
 		switch c[0] {
@@ -281,7 +282,7 @@ func (y4 *y4machine) dump() {
 	fmt.Printf(headerFormat, "user spr")
 	fmt.Println("") // hackity hack
 	for row := 0; row < 8; row++ {
-		start := 8*row
+		start := 8 * row
 		end := 8*row + 8
 		for n := start; n < end; n++ {
 			fmt.Printf("%04X%s", y4.reg[User].spr[n], spOrNL(n < end-1))
@@ -291,19 +292,19 @@ func (y4 *y4machine) dump() {
 	fmt.Printf(headerFormat, "kern spr")
 	fmt.Println("") // hackity hack
 	for row := 0; row < 8; row++ {
-		start := 8*row
+		start := 8 * row
 		end := 8*row + 8
 		for n := start; n < end; n++ {
 			fmt.Printf("%04X%s", y4.reg[1].spr[n], spOrNL(n < end-1))
 		}
 	}
 
-	codeAddr := y4.translate(false, y4.pc)&^7 // round down
+	codeAddr := y4.translate(false, y4.pc) &^ 7 // round down
 	fmt.Printf(headerFormat, fmt.Sprintf("imem@0x%06X", codeAddr))
 	for i := physaddr(0); i < 8; i++ {
 		fmt.Printf("%04X%s", physmem[codeAddr+i], spOrNL(i < 7))
 	}
-	
+
 	// For lack of a better answer, print the memory row at 0.
 	// This at least gives 8 deterministic locations for putting
 	// the results of tests
@@ -326,4 +327,3 @@ func usage() {
 	flag.PrintDefaults()
 	os.Exit(1)
 }
-

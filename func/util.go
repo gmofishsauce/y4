@@ -53,12 +53,12 @@ func (y4 *y4machine) translate(isData bool, virtAddr word) physaddr {
 	if isData {
 		sprOffset += 16
 	}
-	sprOffset += int(virtAddr>>12)
+	sprOffset += int(virtAddr >> 12)
 
 	mmu := y4.reg[y4.mode].spr
-	upper := physaddr(mmu[sprOffset]&0xFFF)
-	lower := physaddr(virtAddr&0xFFF)
-	result := (upper<<12)|lower
+	upper := physaddr(mmu[sprOffset] & 0xFFF)
+	lower := physaddr(virtAddr & 0xFFF)
+	result := (upper << 12) | lower
 	return result
 }
 
@@ -79,17 +79,17 @@ func (y4 *y4machine) reset() {
 func (y4 *y4machine) sxtImm() uint16 {
 	var result uint16
 	ir := y4.ir
-	op := ir.bits(15,13)
-	neg := ir.bits(12,12) != 0
+	op := ir.bits(15, 13)
+	neg := ir.bits(12, 12) != 0
 	if op < 6 { // ldw, ldb, stw, stb, beq, adi all have 7-bit immediates
-		result = ir.bits(12,6)
+		result = ir.bits(12, 6)
 		if neg {
 			result |= 0xFF80
 		}
 	} else if op == 6 { // lui has a 10-bit immediate, upper bits
 		result = ir.bits(12, 3) << 6
 	} else if op == 7 && !neg { // jlr - 7-bit immediate if positive
-		result = ir.bits(12,6)
+		result = ir.bits(12, 6)
 	}
 	// else bits(15,12) == 0xF and the instruction has no immediate value
 	return result
@@ -102,13 +102,13 @@ func (y4 *y4machine) sxtImm() uint16 {
 // zeroes to 128k. If the mode is 0 (kernel), the file is loaded at
 // physical 0. If it is 1 (user), it's loaded at physical 3*64k byte.
 func (y4 *y4machine) load(mode int, binPath string) error {
-    f, err := os.Open(binPath)
-    if err != nil {
-        return err
-    }
-    defer f.Close()
+	f, err := os.Open(binPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
 
-	maxSizeBytes := 3*64*K
+	maxSizeBytes := 3 * 64 * K
 	fi, err := f.Stat()
 	if err != nil {
 		return err
@@ -117,7 +117,7 @@ func (y4 *y4machine) load(mode int, binPath string) error {
 	if size > maxSizeBytes {
 		return fmt.Errorf("not a binary: %s", binPath)
 	}
-	
+
 	off := 0
 	if mode == User {
 		off += maxSizeBytes / 2
@@ -137,7 +137,7 @@ func (y4 *y4machine) load(mode int, binPath string) error {
 		if nRead&1 == 0 {
 			physmem[off] = word(b[0])
 		} else {
-			physmem[off] |= word(b[0])<<8
+			physmem[off] |= word(b[0]) << 8
 			off++
 		}
 		nRead++
@@ -156,12 +156,11 @@ func (y4 *y4machine) load(mode int, binPath string) error {
 }
 
 func (y4 *y4machine) core(corePath string) error {
-    f, err := os.Create(corePath)
-    if err != nil {
-        return err
-    }
-    defer f.Close()
+	f, err := os.Create(corePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
 
 	return binary.Write(f, binary.LittleEndian, physmem)
 }
-

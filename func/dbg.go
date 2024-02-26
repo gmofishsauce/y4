@@ -39,26 +39,26 @@ func fatal(s string) {
 }
 
 func pr(s string) {
-	fmt.Fprintln(os.Stderr, "func: " + s)
+	fmt.Fprintln(os.Stderr, "func: "+s)
 }
 
 var dbEnabled bool
 
-func dbg(s string, args... any) {
+func dbg(s string, args ...any) {
 	// dbgN(1, ...) is this function
 	dbgN(2, s, args...)
 }
 
-func dbgN(n int, s string, args... any) {
+func dbgN(n int, s string, args ...any) {
 	if !dbEnabled {
 		return
 	}
-    pc, _, _, ok := runtime.Caller(n)
-    details := runtime.FuncForPC(pc)
+	pc, _, _, ok := runtime.Caller(n)
+	details := runtime.FuncForPC(pc)
 	where := "???"
-    if ok && details != nil {
+	if ok && details != nil {
 		where = details.Name()
-    }
+	}
 	s = "[at " + where + "]: " + s + "\n"
 	fmt.Fprintf(os.Stderr, s, args...)
 }
@@ -73,13 +73,12 @@ var todoDone = make(map[string]bool)
 // execution of the calling program. Arguments are ignored
 // and are provided to make reference to unreference variables
 // in a partially completely implementation.
-func TODO(args... any) error {
+func TODO(args ...any) error {
 	pc, _, _, ok := runtime.Caller(1)
-    details := runtime.FuncForPC(pc)
-    if ok && details != nil && !todoDone[details.Name()] {
-        dbg("TODO called from %s", details.Name())
+	details := runtime.FuncForPC(pc)
+	if ok && details != nil && !todoDone[details.Name()] {
+		dbg("TODO called from %s", details.Name())
 		todoDone[details.Name()] = true
-    }
+	}
 	return nil
 }
-

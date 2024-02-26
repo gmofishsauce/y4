@@ -57,18 +57,18 @@ func (y4 *y4machine) decode() {
 		return
 	}
 
-	y4.op = y4.ir.bits(15,13)	// base opcode
+	y4.op = y4.ir.bits(15, 13) // base opcode
 	y4.imm = y4.sxtImm()
 
-	y4.xop = y4.ir.bits(11,9)
-	y4.yop = y4.ir.bits(8,6)
-	y4.zop = y4.ir.bits(5,3)
-	y4.vop = y4.ir.bits(2,0)
+	y4.xop = y4.ir.bits(11, 9)
+	y4.yop = y4.ir.bits(8, 6)
+	y4.zop = y4.ir.bits(5, 3)
+	y4.vop = y4.ir.bits(2, 0)
 
-	y4.isVop = y4.ir.bits(15,3) == 0x1FFF
-	y4.isZop = !y4.isVop && y4.ir.bits(15,6) == 0x03FF
-	y4.isYop = !y4.isVop && !y4.isZop && y4.ir.bits(15,9) == 0x007F
-	y4.isXop = !y4.isVop && !y4.isZop && !y4.isYop && y4.ir.bits(15,12) == 0x000F
+	y4.isVop = y4.ir.bits(15, 3) == 0x1FFF
+	y4.isZop = !y4.isVop && y4.ir.bits(15, 6) == 0x03FF
+	y4.isYop = !y4.isVop && !y4.isZop && y4.ir.bits(15, 9) == 0x007F
+	y4.isXop = !y4.isVop && !y4.isZop && !y4.isYop && y4.ir.bits(15, 12) == 0x000F
 	y4.isBase = !y4.isVop && !y4.isZop && !y4.isYop && !y4.isXop
 
 	y4.ra = y4.vop
@@ -125,37 +125,37 @@ func (y4 *y4machine) memory() {
 		}
 
 		switch y4.op {
-		case 0:  // ldw
+		case 0: // ldw
 			if addr&1 != 0 {
 				y4.ex = ExMemory
 				break
 			}
 			y4.wb = physmem[addr]
-		case 1:  // ldb
+		case 1: // ldb
 			memWord := physmem[addr&^1]
 			if addr&1 != 0 {
-				y4.wb = memWord>>8
+				y4.wb = memWord >> 8
 			} else {
-				y4.wb = memWord&0xFF
+				y4.wb = memWord & 0xFF
 			}
-		case 2:  // stw
+		case 2: // stw
 			if addr&1 != 0 {
 				y4.ex = ExMemory
 				break
 			}
 			physmem[addr] = y4.sd
-		case 3:  // stb
+		case 3: // stb
 			memWord := physmem[addr&^1]
 			if addr&1 != 0 {
 				memWord &= 0xFF
-				memWord |= (y4.sd<<8)
+				memWord |= (y4.sd << 8)
 				physmem[addr&^1] = memWord
 			} else {
 				memWord &= 0xFF00
-				memWord |= y4.sd&0xFF
+				memWord |= y4.sd & 0xFF
 				physmem[addr] = memWord
 			}
-		// no default
+			// no default
 		}
 	} else if y4.isYop { // special register or IO load or store
 		switch y4.yop {
@@ -167,7 +167,7 @@ func (y4 *y4machine) memory() {
 			y4.storeSpecial(y4.sd)
 		case 3: // sio
 			y4.storeIO(y4.sd)
-		// no default
+			// no default
 		}
 	}
 }
@@ -176,8 +176,8 @@ func (y4 *y4machine) memory() {
 // from the previous stage. May set an exception, in which case the result
 // value doesn't matter because it won't be written back to a register.
 func (y4 *y4machine) loadSpecial() word {
-	r := y4.alu&(SprSize-1) // 0..63
-	switch r { // no default
+	r := y4.alu & (SprSize - 1) // 0..63
+	switch r {                  // no default
 	case PC:
 		return y4.pc
 	case Link:
@@ -189,9 +189,9 @@ func (y4 *y4machine) loadSpecial() word {
 		y4.ex = ExIllegal
 		return 0
 	case CCLS:
-		return word(y4.cyc&0xFFFF)
+		return word(y4.cyc & 0xFFFF)
 	case CCMS:
-		return word((y4.cyc&0xFFFF0000) >> 16)
+		return word((y4.cyc & 0xFFFF0000) >> 16)
 	}
 	if y4.mode == User {
 		y4.ex = ExIllegal
@@ -201,7 +201,7 @@ func (y4 *y4machine) loadSpecial() word {
 	case r == MmuCtl1:
 		return y4.reg[Kern].spr[MmuCtl1]
 	case r > 8 && r < 16: // unused SPRs
-		return 0; 
+		return 0
 	case r >= 16 && r < 24: // user general registers
 		return y4.reg[User].gen[r-16]
 	case r >= 24 && r < 31: // user special registers
@@ -210,8 +210,8 @@ func (y4 *y4machine) loadSpecial() word {
 			// here, or CCLS/CCMS, but it's stupid.
 			return y4.reg[User].spr[Link]
 		}
-	case r >= 32:// MMU - MmuCtl1 gives kern access to user
-		if y4.reg[Kern].spr[MmuCtl1] & 0x10 != 0 {
+	case r >= 32: // MMU - MmuCtl1 gives kern access to user
+		if y4.reg[Kern].spr[MmuCtl1]&0x10 != 0 {
 			return y4.reg[User].spr[r]
 		} else {
 			return y4.reg[Kern].spr[r]
@@ -232,7 +232,7 @@ func (y4 *y4machine) loadIO() word {
 }
 
 func (y4 *y4machine) storeSpecial(val word) {
-	r := y4.alu&(SprSize-1) // 0..63
+	r := y4.alu & (SprSize - 1) // 0..63
 	if y4.mode == User {
 		// user mode can write its own link register
 		if r == Link {
@@ -250,7 +250,7 @@ func (y4 *y4machine) storeSpecial(val word) {
 	case r == 25: // set user link register
 		y4.reg[User].spr[Link] = val
 	case r >= 32: // set MMU entry, MmuCtl1&0x10 gives kernel access to user
-		if y4.reg[Kern].spr[MmuCtl1] & 0x10 != 0 {
+		if y4.reg[Kern].spr[MmuCtl1]&0x10 != 0 {
 			y4.reg[User].spr[r] = val
 		} else {
 			y4.reg[Kern].spr[r] = val
@@ -272,13 +272,13 @@ func (y4 *y4machine) writeback() {
 	}
 
 	reg := y4.reg[y4.mode]
-	if y4.op == 0 ||   // ldw
-		y4.op == 1 ||  // ldb
-		y4.op == 5 ||  // adi
-		y4.op == 6 ||  // lui
-		y4.isXop ||    // 3-operand alu
-		(y4.isYop && y4.yop < 2) ||  // lsp or lio
-		y4.isZop {     // single operand alu
+	if y4.op == 0 || // ldw
+		y4.op == 1 || // ldb
+		y4.op == 5 || // adi
+		y4.op == 6 || // lui
+		y4.isXop || // 3-operand alu
+		(y4.isYop && y4.yop < 2) || // lsp or lio
+		y4.isZop { // single operand alu
 
 		if y4.ra != 0 {
 			reg.gen[y4.ra] = y4.wb
@@ -333,7 +333,7 @@ var baseops []xf = []xf{
 	y4.jlr,
 }
 
-var yops []xf = []xf {
+var yops []xf = []xf{
 	y4.lsp,
 	y4.lio,
 	y4.ssp,
@@ -344,7 +344,7 @@ var yops []xf = []xf {
 	y4.yopFail,
 }
 
-var vops []xf = []xf {
+var vops []xf = []xf{
 	y4.rti,
 	y4.rtl,
 	y4.di,
@@ -412,7 +412,7 @@ func (y4 *y4machine) jlr() {
 	// It's a jlr, not an xop, because bit 12, the MS bit of the
 	// immediate value, has to be a 0. The decoder is supposed to
 	// take care of this, but for sanity, we check here.
-	if y4.ir.bits(15,12) != 0xE {
+	if y4.ir.bits(15, 12) != 0xE {
 		y4.baseFail() // internal error
 	}
 
@@ -446,37 +446,37 @@ func (y4 *y4machine) alu3() {
 	rs2 := uint16(reg[y4.rc])
 	rs1 := uint16(reg[y4.rb])
 
-	switch (y4.xop) {
+	switch y4.xop {
 	case 0: // add
 		full := uint32(rs2 + rs1)
-		y4.alu = uint16(full&0xFFFF)
+		y4.alu = uint16(full & 0xFFFF)
 		y4.hc = uint16((full & 0x10000) >> 16)
 	case 1: // adc
 		full := uint32(rs2 + rs1 + y4.hc)
-		y4.alu = uint16(full&0xFFFF)
+		y4.alu = uint16(full & 0xFFFF)
 		y4.hc = uint16((full & 0x10000) >> 16)
 	case 2: // sub
 		full := uint32(rs2 - rs1)
-		y4.alu = uint16(full&0xFFFF)
+		y4.alu = uint16(full & 0xFFFF)
 		y4.hc = uint16((full & 0x10000) >> 16)
 	case 3: // sbc
 		full := uint32(rs2 - rs1 - y4.hc)
-		y4.alu = uint16(full&0xFFFF)
+		y4.alu = uint16(full & 0xFFFF)
 		y4.hc = uint16((full & 0x10000) >> 16)
 	case 4: // bic (nand)
 		full := uint32(rs2 &^ rs1)
-		y4.alu = uint16(full&0xFFFF)
+		y4.alu = uint16(full & 0xFFFF)
 		y4.hc = 0
 	case 5: // bis (or)
 		full := uint32(rs2 | rs1)
-		y4.alu = uint16(full&0xFFFF)
+		y4.alu = uint16(full & 0xFFFF)
 		y4.hc = 0
 	case 6: // xor
 		full := uint32(rs2 ^ rs1)
-		y4.alu = uint16(full&0xFFFF)
+		y4.alu = uint16(full & 0xFFFF)
 		y4.hc = 0
 	case 7:
-		y4.decodeFailure("alu3 op == 7")	
+		y4.decodeFailure("alu3 op == 7")
 	}
 }
 
@@ -534,7 +534,7 @@ func (y4 *y4machine) alu1() {
 		y4.alu = 1 + ^rs1
 		y4.hc = 0 // ???
 	case 2: //swb
-		y4.alu = rs1 >> 8 | rs1 << 8
+		y4.alu = rs1>>8 | rs1<<8
 		y4.hc = 0
 	case 3: //sxt
 		if rs1&0x80 != 0 {
@@ -544,7 +544,7 @@ func (y4 *y4machine) alu1() {
 		}
 		y4.hc = 0
 	case 4: //lsr
-		y4.hc = rs1&1
+		y4.hc = rs1 & 1
 		y4.alu = rs1 >> 1
 	case 5: //lsl
 		if rs1&0x8000 == 0 {
@@ -555,7 +555,7 @@ func (y4 *y4machine) alu1() {
 		y4.alu = rs1 << 1
 	case 6: //asr
 		sign := rs1 & 0x8000
-		y4.hc = rs1&1
+		y4.hc = rs1 & 1
 		y4.alu = rs1 >> 1
 		y4.alu |= sign
 	case 7:
