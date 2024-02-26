@@ -58,7 +58,8 @@ func (y4 *y4machine) translate(isData bool, virtAddr word) physaddr {
 	mmu := y4.reg[y4.mode].spr
 	upper := physaddr(mmu[sprOffset]&0xFFF)
 	lower := physaddr(virtAddr&0xFFF)
-	return (upper<<12)|lower
+	result := (upper<<12)|lower
+	return result
 }
 
 // Reset the simulated hardware
@@ -94,7 +95,12 @@ func (y4 *y4machine) sxtImm() uint16 {
 	return result
 }
 
-// Load a binary into memory.
+// Load a binary into memory. This consumes binaries written directly
+// by customasm. Each binary has exactly 1 code segment of up to 64k
+// words (128k bytes) optionally followed by 1 64k byte data segement.
+// If the data segment is present, the code segment is filled with
+// zeroes to 128k. If the mode is 0 (kernel), the file is loaded at
+// physical 0. If it is 1 (user), it's loaded at physical 3*64k byte.
 func (y4 *y4machine) load(mode int, binPath string) error {
     f, err := os.Open(binPath)
     if err != nil {

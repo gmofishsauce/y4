@@ -118,11 +118,6 @@ func (y4 *y4machine) memory() {
 	y4.wb = word(y4.alu)
 
 	if y4.op < 4 { // general register load or store
-		// mem := &y4.mem[y4.mode] MEM
-		/* MEM
-			lower := y4.pc&0xFFF
-			upper := y4.reg[y4.mode].spr[(y4.pc>>12)&0xF]&0xFFF
-		 */
 		addr := y4.translate(true, word(y4.alu))
 		if addr >= PhysMemSize {
 			y4.ex = ExMemory
@@ -136,8 +131,6 @@ func (y4 *y4machine) memory() {
 				break
 			}
 			y4.wb = physmem[addr]
-			//y4.wb = word(mem.dmem[y4.alu]) MEM
-			//y4.wb |= word(mem.dmem[y4.alu+1]) << 8 MEM
 		case 1:  // ldb
 			memWord := physmem[addr&^1]
 			if addr&1 != 0 {
@@ -151,12 +144,7 @@ func (y4 *y4machine) memory() {
 				break
 			}
 			physmem[addr] = y4.sd
-			/* MEM
-			mem.dmem[y4.alu] = byte(y4.sd&0x00FF)
-			mem.dmem[y4.alu+1] = byte(y4.sd>>8)
-			*/
 		case 3:  // stb
-			// mem.dmem[y4.alu] = byte(y4.sd) MEM
 			memWord := physmem[addr&^1]
 			if addr&1 != 0 {
 				memWord &= 0xFF
@@ -211,7 +199,7 @@ func (y4 *y4machine) loadSpecial() word {
 	}
 	switch {
 	case r == MmuCtl1:
-		return y4.reg[Kern].spr[r]
+		return y4.reg[Kern].spr[MmuCtl1]
 	case r > 8 && r < 16: // unused SPRs
 		return 0; 
 	case r >= 16 && r < 24: // user general registers
@@ -228,6 +216,9 @@ func (y4 *y4machine) loadSpecial() word {
 		} else {
 			return y4.reg[Kern].spr[r]
 		}
+	default:
+		y4.ex = ExIllegal
+		return 0
 	}
 	// All the cases should have been handled,
 	// so this should not be reachable.
@@ -243,11 +234,12 @@ func (y4 *y4machine) loadIO() word {
 func (y4 *y4machine) storeSpecial(val word) {
 	r := y4.alu&(SprSize-1) // 0..63
 	if y4.mode == User {
-		if r == Link { // usermode can write its link register
+		// user mode can write its own link register
+		if r == Link {
 			y4.reg[User].spr[Link] = val
-		} else {
-			y4.ex = ExIllegal
+			return
 		}
+		y4.ex = ExIllegal
 		return
 	}
 	switch {
@@ -366,11 +358,11 @@ var vops []xf = []xf {
 // base operations
 
 func (y4 *y4machine) ldw() {
-	// We end up here for zero opcodes. These try
-	// to load r0 which is the black hole register.
-	// Instead of having them be noops, we call
-	// them illegal instructions. This prevents
-	// running uninitialized memory.
+	// We end up here for zero opcodes. These try to load
+	// r0 which is the black hole register. Instead of having
+	// them be noops, we call them illegal instructions. This
+	// prevents running uninitialized memory in the simulator,
+	// which inits memory to 0 because it's written in Golang.
 	if y4.ir == 0 {
 		y4.ex = ExIllegal
 		return
@@ -491,23 +483,27 @@ func (y4 *y4machine) alu3() {
 // yops
 
 func (y4 *y4machine) lsp() {
-	reg := y4.reg[y4.mode].gen
-	y4.alu = uint16(reg[y4.rb]) + y4.imm
+	// Execution stage merely passes rB to ALU
+	// Memory stage will put SPR[alu] in wb
+	y4.alu = uint16(y4.reg[y4.mode].gen[y4.rb])
 }
 
 func (y4 *y4machine) lio() {
-	reg := y4.reg[y4.mode].gen
-	y4.alu = uint16(reg[y4.rb]) + y4.imm
+	// Execution stage merely passes rB to ALU
+	// Memory stage will put SPR[alu] in wb
+	y4.alu = uint16(y4.reg[y4.mode].gen[y4.rb])
 }
 
 func (y4 *y4machine) ssp() {
-	reg := y4.reg[y4.mode].gen
-	y4.alu = uint16(reg[y4.rb]) + y4.imm
+	// Execution stage must set both ALU and sd
+	y4.alu = uint16(y4.reg[y4.mode].gen[y4.rb])
+	y4.sd = y4.reg[y4.mode].gen[y4.ra]
 }
 
 func (y4 *y4machine) sio() {
-	reg := y4.reg[y4.mode].gen
-	y4.alu = uint16(reg[y4.rb]) + y4.imm
+	// Execution stage must set both ALU and sd
+	y4.alu = uint16(y4.reg[y4.mode].gen[y4.rb])
+	y4.sd = y4.reg[y4.mode].gen[y4.ra]
 }
 
 func (y4 *y4machine) y04() {
@@ -515,10 +511,12 @@ func (y4 *y4machine) y04() {
 }
 
 func (y4 *y4machine) y05() {
+	// possible future read from code space
 	y4.ex = ExIllegal
 }
 
 func (y4 *y4machine) y06() {
+	// possible future write to code space
 	y4.ex = ExIllegal
 }
 

@@ -73,9 +73,9 @@ _reset:					; reset and start.
 	lsi r1, 0x10		; 0x10 gives kernel access to user MMU
 	ssp r1, r2			; write to spr
 
-	ldi r1, 0x30		; 0x30_000 = 192k where loader put user code
+	ldi r1, 0x18		; 0x18_000 = 0x30_000 / 2 = 96kw (192kb) where loader put user code
 	lsi r2, 32			; first code MMU register
-	ssp r1, r2			; store 0x30 to user MMU[0] because MmuCtl1 == 0x10
+	ssp r1, r2			; store 0x18 to user MMU[0] because MmuCtl1 == 0x10
 
 	ldi r1, 0x40		; 0x40_000 = 256k where loader put user data
 	lsi r2, 48			; first data MMU register

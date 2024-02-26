@@ -67,15 +67,8 @@ const ExMemory word = 48  // Page fault or unaligned access
 const ExMachine word = 62 // machine check
 
 type physaddr uint32	  // physical addresses are 24 bits
-const PhysMemSize = 512*K // probably 2048K in hardware
+const PhysMemSize = 6*64*K // probably 2048K in hardware
 var physmem [PhysMemSize]word // bytes require extraction
-
-/* MEM
-type y4mem struct { // per mode
-	imem []word // code space
-	dmem []byte // data space
-}
-*/
 
 type y4reg struct { // per mode
 	gen []word // general registers
@@ -84,7 +77,6 @@ type y4reg struct { // per mode
 
 type y4machine struct {
 	cyc uint64  // cycle counter
-	// mem []y4mem // [0] is user space, [1] is kernel  MEM
 	reg []y4reg // [0] is user space, [1] is kernel
 	io  []word	// i/o space, accesible only in kernel mode
 	pc word
@@ -112,12 +104,6 @@ type y4machine struct {
 }
 
 var y4 y4machine = y4machine {
-	/* MEM
-	mem: []y4mem{
-		{imem: make([]word, 64*K, 64*K), dmem: make([]byte, 64*K, 64*K)}, // user
-		{imem: make([]word, 64*K, 64*K), dmem: make([]byte, 64*K, 64*K)}, // kernel
-	},
-	*/
 	reg: []y4reg{
 		{gen: make([]word, 8, 8), spr: make([]word, SprSize, SprSize)}, // user
 		{gen: make([]word, 8, 8), spr: make([]word, SprSize, SprSize)}, // kernel
@@ -182,8 +168,6 @@ func main() {
 // the machine cycles per second at the end because it's not meaningful.
 var blockedForInput bool
 
-// Run the simulator. There must already be something loaded in imem.
-
 func (y4 *y4machine) simulate() error {
 	if y4.ex != 0 {
 		fatal("internal error: simulation started with an exception pending")
@@ -197,6 +181,10 @@ func (y4 *y4machine) simulate() error {
 	// It happens in the order of a pipelined machine, though, to make
 	// converting this to a pipelined simulation easier in the future.
 
+	if dbEnabled {
+		y4.dump()
+		y4.run = prompt(y4)
+	}
 	tStart := time.Now()
 	for y4.cyc++ ; y4.run ; y4.cyc++ {
 		y4.fetch()
@@ -205,6 +193,7 @@ func (y4 *y4machine) simulate() error {
 		y4.memory()
 		y4.writeback()
 		if y4.ex != 0 && !y4.en {
+			// double fault
 			break
 		}
 		if dbEnabled {
@@ -288,18 +277,29 @@ func (y4 *y4machine) dump() {
 		fmt.Printf("%04X%s", reg.gen[i], spOrNL(i < len(reg.gen)-1))
 	}
 
-	// For now, just print both the first 8 user and kernel sprs
+	// Print all 64 user and kernel SPRs
 	fmt.Printf(headerFormat, "user spr")
-	for i := 0; i < 8; i++ {
-		fmt.Printf("%04X%s", y4.reg[0].spr[i], spOrNL(i < 7))
-	}
-	fmt.Printf(headerFormat, "kern spr")
-	for i := 0; i < 8; i++ {
-		fmt.Printf("%04X%s", y4.reg[1].spr[i], spOrNL(i < 7))
+	fmt.Println("") // hackity hack
+	for row := 0; row < 8; row++ {
+		start := 8*row
+		end := 8*row + 8
+		for n := start; n < end; n++ {
+			fmt.Printf("%04X%s", y4.reg[User].spr[n], spOrNL(n < end-1))
+		}
 	}
 
-	codeAddr := y4.translate(false, y4.pc)&0xFFFC
-	fmt.Printf(headerFormat, fmt.Sprintf("imem@0x%04X", codeAddr))
+	fmt.Printf(headerFormat, "kern spr")
+	fmt.Println("") // hackity hack
+	for row := 0; row < 8; row++ {
+		start := 8*row
+		end := 8*row + 8
+		for n := start; n < end; n++ {
+			fmt.Printf("%04X%s", y4.reg[1].spr[n], spOrNL(n < end-1))
+		}
+	}
+
+	codeAddr := y4.translate(false, y4.pc)&^7 // round down
+	fmt.Printf(headerFormat, fmt.Sprintf("imem@0x%06X", codeAddr))
 	for i := physaddr(0); i < 8; i++ {
 		fmt.Printf("%04X%s", physmem[codeAddr+i], spOrNL(i < 7))
 	}
@@ -308,7 +308,7 @@ func (y4 *y4machine) dump() {
 	// This at least gives 8 deterministic locations for putting
 	// the results of tests
 	dataAddr := y4.translate(true, 0)
-	fmt.Printf(headerFormat, fmt.Sprintf("dmem@0x%04X", dataAddr))
+	fmt.Printf(headerFormat, fmt.Sprintf("dmem@0x%06X", dataAddr))
 	for i := physaddr(0); i < 8; i++ {
 		fmt.Printf("%04X%s", physmem[dataAddr+i], spOrNL(i < 7))
 	}
