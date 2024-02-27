@@ -70,6 +70,12 @@ func (y4 *y4machine) reset() {
 	y4.mode = Kern
 	y4.ex = 0
 	y4.en = false
+	// After initialiation, we'll want to enter user mode at user address
+	// 0 by executing an RTI instruction. This will restore the mode from
+	// the kernel mode SPR "Imr". We need this register to contain "user
+	// mode" when that RTI happens. I don't know what I'd do about this in
+	// real hardware if I do that. Should the IMR be writable?
+	y4.reg[Kern].spr[Imr] = User
 }
 
 // Decode a sign extended 10 or 7 bit immediate value from the current

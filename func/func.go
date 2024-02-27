@@ -51,9 +51,8 @@ const ( // Special registers
 	MmuCtl1 = 8 // MMU control register
 )
 
-// TODO these should be reversed. What was I thinking? XXX FIXME
-const User = 0 // Mode = User
-const Kern = 1 // Mode = Kernel
+const Kern = 0 // Mode = Kernel
+const User = 1 // Mode = User
 
 type word uint16
 
@@ -274,14 +273,12 @@ func (y4 *y4machine) dump() {
 		fmt.Printf("\033[2J\033[0;0H")
 	}
 
-	modeName := "user"
-	if y4.mode == Kern {
-		modeName = "kern"
+	modeName := "kern"
+	if y4.mode == User {
+		modeName = "user"
 	}
 	fmt.Printf("Run %t mode %s cycle %d alu = 0x%04X pc = %d exception = 0x%04X\n",
 		y4.run, modeName, y4.cyc, y4.alu, y4.pc, y4.ex)
-
-	// TODO Check for User and Kern reversed. What was I thinking? XXX FIXME
 
 	reg := &y4.reg[y4.mode] // user or kernel
 	headerFormat := "%12s: "
@@ -291,23 +288,25 @@ func (y4 *y4machine) dump() {
 	}
 
 	// Print all 64 user and kernel SPRs
-	fmt.Printf(headerFormat, "user spr")
-	fmt.Println("") // hackity hack
-	for row := 0; row < 8; row++ {
-		start := 8 * row
-		end := 8*row + 8
-		for n := start; n < end; n++ {
-			fmt.Printf("%04X%s", y4.reg[User].spr[n], spOrNL(n < end-1))
-		}
-	}
-
 	fmt.Printf(headerFormat, "kern spr")
 	fmt.Println("") // hackity hack
 	for row := 0; row < 8; row++ {
 		start := 8 * row
 		end := 8*row + 8
+		fmt.Printf("%14s", "")
 		for n := start; n < end; n++ {
-			fmt.Printf("%04X%s", y4.reg[1].spr[n], spOrNL(n < end-1))
+			fmt.Printf("%04X%s", y4.reg[Kern].spr[n], spOrNL(n < end-1))
+		}
+	}
+
+	fmt.Printf(headerFormat, "user spr")
+	fmt.Println("") // hackity hack
+	for row := 0; row < 8; row++ {
+		start := 8 * row
+		end := 8*row + 8
+		fmt.Printf("%14s", "")
+		for n := start; n < end; n++ {
+			fmt.Printf("%04X%s", y4.reg[User].spr[n], spOrNL(n < end-1))
 		}
 	}
 
