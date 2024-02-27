@@ -68,6 +68,7 @@ type word uint16
 type exception uint16
 
 const (
+	ExNone exception = 0 // no exception (reset is not exception)
 	ExIllegal exception = 16 // illegal instruction
 	ExMemory  exception = 18 // access violation (page fault)
 	ExAlign   exception = 20 // alignment fault
@@ -310,19 +311,28 @@ func (y4 *y4machine) dump() {
 		}
 	}
 
-	codeAddr := y4.translate(false, y4.pc) &^ 7 // round down
-	fmt.Printf(headerFormat, fmt.Sprintf("imem@0x%06X", codeAddr))
-	for i := physaddr(0); i < 8; i++ {
-		fmt.Printf("%04X%s", physmem[codeAddr+i], spOrNL(i < 7))
+	ex, codeAddr := y4.translate(false, y4.pc)
+	if ex != ExNone {
+		fmt.Printf(headerFormat, fmt.Sprintf("fault@pc = 0x%04X", y4.pc))
+	} else {
+		codeAddr &^= 7
+		fmt.Printf(headerFormat, fmt.Sprintf("imem@0x%06X", codeAddr))
+		for i := physaddr(0); i < 8; i++ {
+			fmt.Printf("%04X%s", physmem[codeAddr+i], spOrNL(i < 7))
+		}
 	}
 
 	// For lack of a better answer, print the memory row at 0.
 	// This at least gives 8 deterministic locations for putting
 	// the results of tests
-	dataAddr := y4.translate(true, 0)
-	fmt.Printf(headerFormat, fmt.Sprintf("dmem@0x%06X", dataAddr))
-	for i := physaddr(0); i < 8; i++ {
-		fmt.Printf("%04X%s", physmem[dataAddr+i], spOrNL(i < 7))
+	ex, dataAddr := y4.translate(true, 0)
+	if ex != ExNone {
+		fmt.Printf(headerFormat, fmt.Sprintf("fault@data = 0x%04X", 0))
+	} else {
+		fmt.Printf(headerFormat, fmt.Sprintf("dmem@0x%06X", dataAddr))
+		for i := physaddr(0); i < 8; i++ {
+			fmt.Printf("%04X%s", physmem[dataAddr+i], spOrNL(i < 7))
+		}
 	}
 }
 

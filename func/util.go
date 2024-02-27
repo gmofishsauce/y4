@@ -48,7 +48,7 @@ func (w word) bits(hi int, lo int) uint16 {
 // It's cheesy using a bool for the 2-element enum {code, data}.
 // But adding to that enum would require a major change to the
 // WUT-4 architecture, i.e. this would be the least of my worries.
-func (y4 *y4machine) translate(isData bool, virtAddr word) physaddr {
+func (y4 *y4machine) translate(isData bool, virtAddr word) (exception, physaddr) {
 	sprOffset := 32
 	if isData {
 		sprOffset += 16
@@ -59,7 +59,10 @@ func (y4 *y4machine) translate(isData bool, virtAddr word) physaddr {
 	upper := physaddr(mmu[sprOffset] & 0xFFF)
 	lower := physaddr(virtAddr & 0xFFF)
 	result := (upper << 12) | lower
-	return result
+	if result > PhysMemSize {
+		return ExMemory, result
+	}
+	return ExNone, result
 }
 
 // Reset the simulated hardware

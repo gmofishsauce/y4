@@ -34,12 +34,12 @@ func (y4 *y4machine) fetch() {
 		y4.ex = 0
 	}
 
-	physAddr := y4.translate(false, y4.pc)
-	if physAddr >= PhysMemSize {
-		y4.ex = ExMemory
+	ex, addr := y4.translate(false, y4.pc)
+	if ex != ExNone {
+		y4.ex = ex
 		return
 	}
-	y4.ir = physmem[physAddr]
+	y4.ir = physmem[addr]
 
 	// Control flow instructions will overwrite this in a later stage.
 	// This implementation is sequential (does everything each clock cycle).
@@ -118,9 +118,9 @@ func (y4 *y4machine) memory() {
 	y4.wb = word(y4.alu)
 
 	if y4.op < 4 { // general register load or store
-		addr := y4.translate(true, word(y4.alu))
-		if addr >= PhysMemSize {
-			y4.ex = ExMemory
+		ex, addr := y4.translate(true, word(y4.alu))
+		if ex != ExNone {
+			y4.ex = ex
 			return
 		}
 
