@@ -26,15 +26,13 @@ customasm. You should never need to run customasm directly, nor should you need 
 \#include any "rules" as described in the documentation for customasm--the script
 takes care of all that.
 
+The only command line option is -o output to provide a different name for the output.
+
 ## Source
 
 Source files are named *.y4a (YARC-4 assembler).
 
 ## Output
 
-The binary result file is written to y4.out.
+The binary result file is written to `y4.out` unless overridden with -o.
 
-## TODO
-
-Create a disassembler. Create a few tests that assemble source code, run the disassembler,
-and verify that the results match the original source code.

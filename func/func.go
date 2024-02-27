@@ -39,32 +39,41 @@ var uflag = flag.String("u", "", "user binary")
 const K = 1024
 const IOSize = 64  // 64 words of I/O space
 const SprSize = 64 // 64 special registers, per Mode
-const PC = 0       // Special register 0 is PC, read-only
-const Link = 1     // Special register 1 is Link, per Mode
-const Irr = 2      // Kernel only interrupt return register SPR
-const Icr = 3      // Kernel only interrupt cause register SPR
-const Imr = 4      // Kernel only interrupt mode register SPR
-const CCLS = 6     // Cycle counter, lower short
-const CCMS = 7     // Cycle counter, most significant short
-const MmuCtl1 = 8  // MMU control register. 1 enables access ctl,
-// 0x10 enables kernelmode write user MME regs
 
+const ( // Special registers
+	PC      = 0 // Special register 0 is PC, read-only
+	Link    = 1 // Special register 1 is Link, per Mode
+	Irr     = 2 // Kernel only interrupt return register SPR
+	Icr     = 3 // Kernel only interrupt cause register SPR
+	Imr     = 4 // Kernel only interrupt mode register SPR
+	CCLS    = 6 // Cycle counter, lower short
+	CCMS    = 7 // Cycle counter, most significant short
+	MmuCtl1 = 8 // MMU control register
+)
+
+// TODO these should be reversed. What was I thinking? XXX FIXME
 const User = 0 // Mode = User
 const Kern = 1 // Mode = Kernel
 
 type word uint16
 
 // Exception types. These must be even numbers less than 64, so
-// there are 32 distinct types. The first 16 types 0..30 are
-// accessible as opcodes SYS 0 through SYS 30. The second 16,
-// 32..62, are reserved for the hardware to inject when an
-// exceptional condition is detected. SYS 0 jumps to the system
-// reset code; if called from user mode, the kernel can (and
-// does) choose to treat this as an illegal instruction.
+// there are 32 distinct types. The wut-4 transitions to kernel
+// mode and the value of an exception becomes the value of the
+// program counter when the exception occurs. Exception 0 resets
+// the system. Exceptions 2..14 correspond to the prioritized
+// interrupt levels 1..7. Exceptions 16..30 are hardware generated
+// traps, e.g. memory access violations, etc. Exceptions 32 .. 62
+// are software traps accessible as SYS 32 through SYS 62.
 
-const ExIllegal word = 32 // illegal instruction
-const ExMemory word = 48  // Page fault or unaligned access
-const ExMachine word = 62 // machine check
+type exception uint16
+
+const (
+	ExIllegal exception = 16 // illegal instruction
+	ExMemory  exception = 18 // access violation (page fault)
+	ExAlign   exception = 20 // alignment fault
+	ExMachine exception = 30 // machine check
+)
 
 type physaddr uint32           // physical addresses are 24 bits
 const PhysMemSize = 6 * 64 * K // probably 2048K in hardware
@@ -87,12 +96,12 @@ type y4machine struct {
 	mode byte // current mode, user = 0, kernel = 1
 
 	// Non-architectural state used within an instruction
-	alu uint16 // temporary alu result register; memory address
-	sd  word   // memory source data register set at execute
-	wb  word   // writeback register set at execute or memory
-	ex  word   // exception code
-	ir  word   // instruction register
-	hc  uint16 // hidden carry bit, 1 or 0
+	alu uint16    // temporary alu result register; memory address
+	sd  word      // memory source data register set at execute
+	wb  word      // writeback register set at execute or memory
+	ex  exception // exception code
+	ir  word      // instruction register
+	hc  uint16    // hidden carry bit, 1 or 0
 
 	// These variables are part of the combinational logic.
 	// The are set at decode time and used at execute, memory,
@@ -232,8 +241,9 @@ func prompt(y4 *y4machine) bool {
 	blockedForInput = true
 
 	var c []byte = make([]byte, 80, 80)
-loop:
-	for {
+	var done bool
+
+	for !done {
 		fmt.Printf("\n[h c r s x] sim> ")
 		os.Stdin.Read(c)
 		switch c[0] {
@@ -243,10 +253,10 @@ loop:
 			fmt.Printf("h - help\nc - core\nr - run\ns - single step\nx - exit\n")
 		case 'r':
 			dbEnabled = false
-			break loop
+			done = true
 		case 's':
 			dbEnabled = true
-			break loop
+			done = true
 		case 'x':
 			return false
 		}
@@ -270,6 +280,8 @@ func (y4 *y4machine) dump() {
 	}
 	fmt.Printf("Run %t mode %s cycle %d alu = 0x%04X pc = %d exception = 0x%04X\n",
 		y4.run, modeName, y4.cyc, y4.alu, y4.pc, y4.ex)
+
+	// TODO Check for User and Kern reversed. What was I thinking? XXX FIXME
 
 	reg := &y4.reg[y4.mode] // user or kernel
 	headerFormat := "%12s: "

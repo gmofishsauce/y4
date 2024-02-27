@@ -25,7 +25,7 @@ func (y4 *y4machine) fetch() {
 
 		// an exception occurred during the previous cycle.
 		y4.reg[Kern].spr[Irr] = y4.pc
-		y4.reg[Kern].spr[Icr] = y4.ex
+		y4.reg[Kern].spr[Icr] = word(y4.ex)
 		y4.reg[Kern].spr[Imr] = word(y4.mode)
 
 		y4.mode = Kern
@@ -420,15 +420,11 @@ func (y4 *y4machine) jlr() {
 	// is overloaded as additional opcode bits here.
 	switch y4.ra {
 	case 0: // sys trap
-		if y4.rb != 0 || y4.imm&1 == 1 || y4.imm == 0 || y4.imm > 30 {
-			// 15 of the first 16 traps, represented by values 2..30,
-			// are legal instructions. 32..62 are reserved for hardware.
-			// Trap 0 is not legal because it resets the machine. The
-			// kernel can do this by jmp 0.
+		if y4.rb != 0 || y4.imm&1 == 1 || y4.imm < 32 || y4.imm > 62 {
 			y4.ex = ExIllegal
 			return
 		}
-		y4.ex = word(y4.imm)
+		y4.ex = exception(y4.imm)
 	case 1: // jump and link
 		y4.reg[y4.mode].spr[Link] = y4.pc
 		y4.pc = word(uint16(y4.reg[y4.mode].gen[y4.rb]) + y4.imm)

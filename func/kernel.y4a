@@ -4,78 +4,81 @@
 
 #bank code
 
-; 32 2-word vectors. First 16 correspond to sys instructions.
-; The second group of 16 are injected by hardware or unused.
+; 32 2-word vectors. First 8 are hardware interrupt priorities.
+; Next 8 are hardware-discovered faults. Last 16 are SYS instructions.
 
 	jmp r5, _reset		; sys 0 - reset vector
-	jmp r5, _fastsys	; sys 2 - fast system calls
-	jmp r5, _syscall	; sys 4 - system calls
-	jmp r5, _badsys		; sys 6 - not used
+	jmp r5, _hwint1	    ; sys 2 - interrupt priority 1
+	jmp r5, _hwint2     ; sys 4 - interrupt priority 2
+	jmp r5, _hwint3		; sys 6 - interrupt priority 3
 
-	jmp r5, _badsys		; sys 8 - not used
-	jmp r5, _badsys		; sys 10 - not used
-	jmp r5, _badsys		; sys 12 - not used
-	jmp r5, _badsys		; sys 14 - not used
+	jmp r5, _hwint4		; sys 8 - interrupt priority 4
+	jmp r5, _hwint5		; sys 10 - interrupt priority 5
+	jmp r5, _hwint6		; sys 12 - interrupt priority 6
+	jmp r5, _hwint7		; sys 14 - interrupt priority 7
 
-	jmp r5, _badsys		; sys 16
+    ; begin hardware discovered faults
+
+	jmp r5, _illegal		; sys 16
+	jmp r5, _mmufault
+	jmp r5, _align
+	jmp r5, _badtrap
+
+	jmp r5, _badtrap		; sys 24
+	jmp r5, _badtrap
+	jmp r5, _badtrap
+	jmp r5, _machine
+
+	; begin sys instructions
+
+	jmp r5, _badsys	; trap 32 - illegal instruction fault
 	jmp r5, _badsys
 	jmp r5, _badsys
 	jmp r5, _badsys
 
-	jmp r5, _badsys		; sys 24
+	jmp r5, _badsys	; trap 40
 	jmp r5, _badsys
 	jmp r5, _badsys
 	jmp r5, _badsys
 
-	; begin injected hardware faults
+	jmp r5, _badsys	; trap 48 - page fault
+	jmp r5, _badsys		; trap 50 - alignment fault
+	jmp r5, _badsys
+	jmp r5, _badsys
 
-	jmp r5, _illegal	; trap 32 - illegal instruction fault
-	jmp r5, _badtrap
-	jmp r5, _badtrap
-	jmp r5, _badtrap
+	jmp r5, _badsys	; trap 56
+	jmp r5, _badsys
+	jmp r5, _badsys
+	jmp r5, _badsys	; trap 62 - machine check
 
-	jmp r5, _badtrap	; trap 40
-	jmp r5, _badtrap
-	jmp r5, _badtrap
-	jmp r5, _badtrap
-
-	jmp r5, _mmufault	; trap 48 - page fault
-	jmp r5, _align		; trap 50 - alignment fault
-	jmp r5, _badtrap
-	jmp r5, _badtrap
-
-	jmp r5, _badtrap	; trap 56
-	jmp r5, _badtrap
-	jmp r5, _badtrap
-	jmp r5, _machine	; trap 62 - machine check
-
-; Word 64 in memory. End of vectors. Begin code.
+; Word 64 (byte 128) in memory. End of vectors. Begin code.
 
 ; Reset the system. The architecture guarantees only that at hardware
 ; initialization, the WUT-4 will be placed in kernel mode, will begin
 ; execution at 0, and that the MMU will map physical page 0 at both
-; code address 0 and data address 0. The simulator actually initializes 
-; all the MMU registers to 0.
+; kernel code address 0 and kernel data address 0.
 ;
-; The reset code here maps user code page 0 at physical address 192*1024
-; and user data page 0 at physical address 256*1024. This matches the
-; behavior of the program loader built into the simulator and allows
-; small test programs with up to 4k of code and 4k of data to execute
-; in usermode without any other kernel memory management support.
+; The reset code here maps user code page 0 at physical word address
+; 96*1024 (word address 192*1024) and user data page 0 at physical
+; byte address 256*1024. This matches the behavior of the program
+; loader built into the simulator which supports a tiny 4k code+data
+; kernel and allows small test programs with up to 4k of code and 4k
+; of data to execute in usermode without any other kernel memory
+; management support.
 ;
-; TODO implement an MMU control register so the kernel can write into
-; the usermode MMU registers. Put 48 in the user MMU register 0 (address
-; 192k) and 64 in the user MMU register 16 (address 256k). Then return
-; into usermode.
+; The MmuCtl1 register contains two defined bits. 0x0001 enables
+; memory access control. This is not yet implemented. The bit at
+; 0x0010 enables the kernel to write into the user mode MMU. This
+; is implemented in the emulator.
 
 _reset:					; reset and start.
 	lsi r2, 8			; 8 is MmuCtl1 (need defs)
 	lsi r1, 0x10		; 0x10 gives kernel access to user MMU
 	ssp r1, r2			; write to spr
 
-	ldi r1, 0x18		; 0x18_000 = 0x30_000 / 2 = 96kw (192kb) where loader put user code
-	lsi r2, 32			; first code MMU register
-	ssp r1, r2			; store 0x18 to user MMU[0] because MmuCtl1 == 0x10
+	ldi r1, 0x18		; 0x18_000 = 0x30_000 / 2 = 96kw (192kb)
+	lsi r2, 32			; first user mode code MMU register
+	ssp r1, r2			; store 0x18 to user MMU[0] (loader put code there)
 
 	ldi r1, 0x40		; 0x40_000 = 256k where loader put user data
 	lsi r2, 48			; first data MMU register
@@ -88,28 +91,24 @@ _reset:					; reset and start.
 	ssp r0, r2			; store 0 code address in Irr
 	rti					; return to usermode at 0 (start)
 
+_hwint1:
+_hwint2:
+_hwint3:
+_hwint4:
+_hwint5:
+_hwint6:
+_hwint7:
+    die                 ; TODO hardware interrupts (not yet emulated)
+
+_illegal:               ; TODO illegal instruction fault
+_mmufault:				; TODO page fault and segmentation exception
+_align:					; TODO alignment fault
 _machine:				; TODO machine check
 	die
-
-_mmufault:				; TODO page fault and segmentation exception
-	die
-
-_align:					; TODO alignment fault
-	die
-
-; I'd like to know how to assert that $ at this point is < 4096.
-; That's the end of the code that must be in page 0. Depending
-; on the design of the kernel, it may be important to put other
-; code in page 0. This is TBD. The rest can go anywhere.
 
 _badsys:	; undefined sys instruction
 _badtrap:	; undefined hardware fault
 	die
-
-_illegal:	; TODO illegal instruction fault
-	die
-_syserr:
-	die		; TODO undefined system call
 
 ; jump table for fastcalls. We just round it to the next
 ; (power of 2) - 1 to make bounds checking really simple.
@@ -138,6 +137,8 @@ _1f:
 
 _syscall:	; TODO ordinary system calls that can move data
 	die
+_syserr:
+	die		; TODO undefined system call
 
 ; exit - exit code in r2
 exit:

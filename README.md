@@ -5,7 +5,7 @@ Y4 project
 
 ## [dis](./dis) - y4 disassembler
 
-## [sim](./sim) - y4 simulator
+## [func](./func) - y4 emulator
 
-## [yapl](./yapl) - Yet Another Programming Language
+## [yapl-0](./yapl-0) - y4 language experimentation platform
 
