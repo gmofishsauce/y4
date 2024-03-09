@@ -1,11 +1,19 @@
 ; Loads at 0 in user memory. Takes a second
 ; or two to execute, providing a machine cycles
 ; per second estimator.
+; BADD DEAD CAlF BEEF FADE CAFE DOOB FOOD
 
 #include "sys.y4a"
 
 ; number of 64k loops
 DELAY = 100
+
+    lsi r5, 0
+    ldi r6, 0xDEAD
+    stw r6, r5, 0
+    adi r5, r5, 2
+    ldi r6, 0xBEEF
+    stw r6, r5, 0
 
 	lsi r1, 0
 	ldi r2, DELAY

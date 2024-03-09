@@ -1,15 +1,20 @@
-; sys.y4a - system definitions
+; sys.y4a - system definitions for usermode code
 
-; fast system calls - syscall in r1 ; sys 1
+; fast system calls - syscall (SYS_) number in r1 ; sys FASTSYS
+; Argument if any in r2, r3, ...; return value in r1.
 
-FASTSYS = 2		; sys FASTSYS
-SYS_UNDEF = 0	; not a FASTSYS call
-SYS_EXIT = 1	; sys FASTSYS ; 1 in r1, exit code in r2
-SYS_DBG = 2     ; sys FASTSYS ; 2 in r1
-SYS_PUTC = 3    ; sys FASTSYS ; 3 in r1, byte in r2
-FASTSYS_LAST = 3
+FASTSYS = 2		; sys FASTSYS for calls below
 
-SYSCALL = 4		; sys SYSCALL ; call in r1, args ...
-SYS_PUTLINE = 1 ; sys SYSCALL ; 1 in r1, address in r2
-SYS_GETLINE = 2 ; sys SYSCALL ; 2 in r1, address in r2, max in r3
-SYS_LAST = 2
+SYS_UNDEF = 0	; no operation ; returns error
+SYS_EXIT = 1	; exit code in r2 ; no error return
+SYS_DBG = 2     ; no arguments ; no error return
+SYS_PUTC = 3    ; byte in r2 ; no error return ; can block
+SYS_GETC = 4    ; byte < 0x80 or negative error code in r2
+SYS_TBD1 = 5    ; undefined
+SYS_TBD2 = 6    ; undefined
+SYS_TBD3 = 7    ; undefined
+
+; Special registers
+
+PC      = 0     ; Special register 0 is PC, read-only
+Link    = 1     ; Special register 1 is Link, per Mode

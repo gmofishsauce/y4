@@ -118,6 +118,7 @@ func (y4 *y4machine) memory() {
 	y4.wb = word(y4.alu)
 
 	if y4.op < 4 { // general register load or store
+		isOdd := y4.alu&1 != 0
 		ex, addr := y4.translate(true, word(y4.alu))
 		if ex != ExNone {
 			y4.ex = ex
@@ -126,35 +127,35 @@ func (y4 *y4machine) memory() {
 
 		switch y4.op {
 		case 0: // ldw
-			if addr&1 != 0 {
+			if isOdd {
 				y4.ex = ExMemory
 				break
 			}
 			y4.wb = physmem[addr]
 		case 1: // ldb
-			memWord := physmem[addr&^1]
-			if addr&1 != 0 {
+			memWord := physmem[addr]
+			if isOdd {
 				y4.wb = memWord >> 8
 			} else {
 				y4.wb = memWord & 0xFF
 			}
 		case 2: // stw
-			if addr&1 != 0 {
+			if isOdd {
 				y4.ex = ExMemory
 				break
 			}
+			dbg("stw memory phase: addr, sd = 0x%04X, 0x%04X", addr, y4.sd)
 			physmem[addr] = y4.sd
 		case 3: // stb
-			memWord := physmem[addr&^1]
-			if addr&1 != 0 {
+			memWord := physmem[addr]
+			if isOdd {
 				memWord &= 0xFF
 				memWord |= (y4.sd << 8)
-				physmem[addr&^1] = memWord
 			} else {
 				memWord &= 0xFF00
 				memWord |= y4.sd & 0xFF
-				physmem[addr] = memWord
 			}
+			physmem[addr] = memWord
 			// no default
 		}
 	} else if y4.isYop { // special register or IO load or store
@@ -361,7 +362,7 @@ func (y4 *y4machine) ldw() {
 	// We end up here for zero opcodes. These try to load
 	// r0 which is the black hole register. Instead of having
 	// them be noops, we call them illegal instructions. This
-	// prevents running uninitialized memory in the simulator,
+	// prevents running uninitialized memory in the emulator,
 	// which inits memory to 0 because it's written in Golang.
 	if y4.ir == 0 {
 		y4.ex = ExIllegal
@@ -379,15 +380,13 @@ func (y4 *y4machine) ldb() {
 func (y4 *y4machine) stw() {
 	reg := y4.reg[y4.mode].gen
 	y4.alu = uint16(reg[y4.rb]) + y4.imm
-	// no register writeback
-	// memory operation handled in memory phase
+	y4.sd = reg[y4.ra]
 }
 
 func (y4 *y4machine) stb() {
 	reg := y4.reg[y4.mode].gen
 	y4.alu = uint16(reg[y4.rb]) + y4.imm
-	// no register writeback
-	// memory operation handled in memory phase
+	y4.sd = reg[y4.ra]
 }
 
 func (y4 *y4machine) beq() {

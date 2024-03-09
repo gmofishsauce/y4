@@ -33,21 +33,25 @@ func (w word) bits(hi int, lo int) uint16 {
 	return uint16(w>>lo) & uint16(1<<(hi-lo+1)-1)
 }
 
-// Virtual to physical address translation. There are two MMUs,
-// one for kernel and one for user mode. Each MMU is at offset
-// 32 in the respective arrays of 64 SPRs. The first 16 entries
-// map 64k words of code space. The second 16 SPRs map 64k bytes
-// of data space. Physical addresses are 24 bits long, allowing
-// 16Mib of physical data memory and 16MiWords of code memory.
-// The lower 12 bits of virtual address become part of the physical
-// address. The upper 4 bits of virtual address are used to select
-// one of the 16 MMU registers for that (mode, kind) pair. The
-// lower 12 bits of the selected MMU register become the upper 12
-// bits of the 24-bit physical address.
+// Virtual to physical address translation. There are two MMUs, one for
+// kernel and one for user mode. Each MMU is at offset 32 in the respective
+// arrays of 64 SPRs. The first 16 entries map 64k words (128k bytes) of
+// code space. The second 16 SPRs map 64k bytes of data space. Physical
+// addresses are 24 bits long, allowing 16Mib of physical data memory.
 //
-// It's cheesy using a bool for the 2-element enum {code, data}.
-// But adding to that enum would require a major change to the
-// WUT-4 architecture, i.e. this would be the least of my worries.
+// The lower 12 bits of virtual address become part of the physical address.
+// The upper 4 bits of virtual address are used to select one of the 16 MMU
+// registers for that (mode, kind) pair. The lower 12 bits of the selected
+// MMU register become the upper 12 bits of the 24-bit physical address.
+//
+// Since physical memory is implemented as an array of shortwords, data
+// addresses are shifted right one to make up for the automatic address
+// scaling that results from indexing the uint16 array. Byte accesses within
+// this word must be handled by the caller.
+//
+// It's cheesy using a bool for the 2-element enum {code, data}. But adding
+// to that enum would require a major change to the WUT-4 architecture, i.e.
+// this would be the least of my worries.
 func (y4 *y4machine) translate(isData bool, virtAddr word) (exception, physaddr) {
 	sprOffset := 32
 	if isData {
@@ -59,6 +63,11 @@ func (y4 *y4machine) translate(isData bool, virtAddr word) (exception, physaddr)
 	upper := physaddr(mmu[sprOffset] & 0xFFF)
 	lower := physaddr(virtAddr & 0xFFF)
 	result := (upper << 12) | lower
+	if isData {
+		result >>= 1
+	}
+	// Prevent the emulator from crashing if the emulated code accesses
+	// past the end of physmem. TODO: memory protection architecture.
 	if result > PhysMemSize {
 		return ExMemory, result
 	}
