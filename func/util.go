@@ -25,6 +25,7 @@ import (
 	"fmt" // fmt.Errorf only
 	"io"
 	"os"
+	"os/exec"
 )
 
 // Get the bits from hi:lo inclusive as a small uint16
@@ -181,4 +182,17 @@ func (y4 *y4machine) core(corePath string) error {
 	defer f.Close()
 
 	return binary.Write(f, binary.LittleEndian, physmem)
+}
+
+func rundis(arg string) string {
+	disCmd := exec.Command("dis", "-f", arg)
+	disOut, err := disCmd.Output()
+	if err != nil {
+		return err.Error()
+	}
+	result := string(disOut)
+	if result[len(result)-1:] == "\n" {
+		result = result[0:len(result)-1]
+	}
+	return result
 }

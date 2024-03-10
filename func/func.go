@@ -280,6 +280,14 @@ func (y4 *y4machine) dump() {
 	}
 	fmt.Printf("Run %t mode %s cycle %d alu = 0x%04X pc = %d exception = 0x%04X\n",
 		y4.run, modeName, y4.cyc, y4.alu, y4.pc, y4.ex)
+	// disassemble the instruction at pc
+	ex, codeAddr := y4.translate(false, y4.pc)
+	if ex != ExNone {
+		fmt.Printf("fault@pc = 0x%04X (0x%04X)\n", y4.pc, ex)
+	} else {
+		arg := fmt.Sprintf("0x%04X@0x%04X", physmem[codeAddr], y4.pc)
+		fmt.Printf("instruction @0x%04X: %s\n", y4.pc, rundis(arg))
+	}
 
 	reg := &y4.reg[y4.mode] // user or kernel
 	headerFormat := "%12s: "
@@ -311,15 +319,10 @@ func (y4 *y4machine) dump() {
 		}
 	}
 
-	ex, codeAddr := y4.translate(false, y4.pc)
-	if ex != ExNone {
-		fmt.Printf(headerFormat, fmt.Sprintf("fault@pc = 0x%04X", y4.pc))
-	} else {
-		codeAddr &^= 7
-		fmt.Printf(headerFormat, fmt.Sprintf("imem@0x%06X", codeAddr))
-		for i := physaddr(0); i < 8; i++ {
-			fmt.Printf("%04X%s", physmem[codeAddr+i], spOrNL(i < 7))
-		}
+	codeAddr &^= 7
+	fmt.Printf(headerFormat, fmt.Sprintf("imem@0x%06X", codeAddr))
+	for i := physaddr(0); i < 8; i++ {
+		fmt.Printf("%04X%s", physmem[codeAddr+i], spOrNL(i < 7))
 	}
 
 	// For lack of a better answer, print the memory row at 0.

@@ -1,6 +1,6 @@
 ; kernel - loads a 0 in kernel space. Only the first kernel-mode
 ; MMU register is initialized by hardware, so this part of the
-; kernel must fit in the first 4k word page.Only the code register
+; kernel must fit in the first 4k word page. Only the code register
 ; is initialized; there must be no data memory references before
 ; MMU initialization, below.
 
@@ -36,7 +36,7 @@
 	; begin sys instructions
 
 	jmp r5, _badsys     ; sys 32
-	jmp r5, _badsys
+	jmp r5, _fastsys    ; "fast" (?) system calls
 	jmp r5, _badsys
 	jmp r5, _badsys
 
@@ -85,8 +85,6 @@ MC1AccUser = 0x10		; Enable kernel access to user MMU registers
 ; 0x0010 enables the kernel to write into the user mode MMU. This
 ; is implemented in the emulator.
 
-; TODO add mapping for kernel data page 0 if necessary.
-
 _reset:					; reset and start.
 	lsi r2, MmuCtl1		; spr index of control register
 	lsi r1, MC1AccUser	; 0x10 gives kernel access to user MMU
@@ -97,13 +95,21 @@ _reset:					; reset and start.
 	ssp r1, r2			; store 0x18 to user MMU[0]
 
 	ldi r1, 0x40		; 0x40_000 = 256k where loader put user data
-	lsi r2, 48			; first data MMU register
+	lsi r2, 48			; first user data MMU register
 	ssp r1, r2			; store 0x40 to user MMU[16] because MmuCtl1 == 0x10
 
 	lsi r2, 8			; spr index of control register
 	ssp r0, r2			; store 0 there so kernel can access its own MMU
 
-	;ldi r1, FIXME      ; give the kernel a data page
+	lsi r1, 0x10        ; 0x10_000 = 128k where loader put kernel data if any
+    lsi r2, 48          ; first kernel data MMU register
+    ssp r1, r2          ; store
+
+    ldi r1, 0xBADD      ; put BADD D00B at kernel data bytes 0..3
+    lsi r2, 0
+    stw r1, r2, 0
+    ldi r1, 0xD00B
+    stw r1, r2, 2
 
 	lsi r2, 2			; Spr address of Irr
 	ssp r0, r2			; store 0 code address in Irr
@@ -136,10 +142,10 @@ FASTSYS_MAX = 7 ; must be a power of 2 - 1 (mask)
 
 _fasttab:
 #d16 _syserr ; sys FASTSYS ; 0 in r1 => error
-#d16 exit    ; sys FASTSYS ; 1 in r1, exit code in r2
-#d16 debug   ; sys FASTSYS ; 2 in r1 ; no arguments
-#d16 putc    ; sys FASTSYS ; 3 in r1, byte in r2; can block
-#d16 getc    ; sys FASTSYS ; 4 in r1, byte or error return in r1
+#d16 _exit   ; sys FASTSYS ; 1 in r1, exit code in r2
+#d16 _debug  ; sys FASTSYS ; 2 in r1 ; no arguments
+#d16 _putb   ; sys FASTSYS ; 3 in r1, byte in r2; can block
+#d16 _getb   ; sys FASTSYS ; 4 in r1, byte or error return in r1
 #d16 _syserr ; 5
 #d16 _syserr ; 6
 #d16 _syserr ; 7
@@ -160,19 +166,19 @@ _syserr:
 	die		; TODO undefined system call
 
 ; exit - exit code in r2
-exit:
+_exit:
 	hlt
 
 ; debug - simulator register dump - no arguments
-debug:
+_debug:
 	brk
     rti
 
-; putc - byte in r2 TODO
-putc:
+; putb - byte in r2 TODO
+_putb:
 	die
 
-; getc - returned byte or error in r1
-getc:
+; getb - returned byte or error in r1
+_getb:
     die
 
