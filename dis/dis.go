@@ -24,9 +24,12 @@ import (
 	"flag"
 	"io"
 	"os"
+	"strconv"
+	"strings"
 )
 
 var qflag = flag.Bool("q", false, "quiet offsets and opcodes")
+var fflag = flag.String("f", "", "fast disassemble option argument")
 
 // Table of mnemonics and their signatures
 
@@ -115,6 +118,25 @@ var KeyTable []KeyEntry = []KeyEntry {
 
 func main() {
 	flag.Parse()
+	if len(*fflag) > 0 { // disassemble a single instruction op@pc
+		opAndPc := strings.Split(*fflag, "@")
+		if len(opAndPc) != 2 {
+			fmt.Printf("invalid argument: %s\n", *fflag)
+			os.Exit(1)
+		}
+		op, err := strconv.ParseUint(opAndPc[0], 0, 16)
+		if err != nil || op >= 64*1024 {
+			fmt.Printf("invalid instruction: %s\n", opAndPc[0])
+			os.Exit(1)
+		}
+		at, err := strconv.ParseUint(opAndPc[1], 0, 16)
+		if err != nil || at >= 64*1024 {
+			fmt.Printf("invalid PC: %s\n", opAndPc[1])
+			os.Exit(1)
+		}
+		fmt.Printf("%s\n", decode(uint16(op), int(at)))
+		os.Exit(0)
+	}
 	args := flag.Args()
 	if len(args) != 1 {
 		usage()
