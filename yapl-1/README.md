@@ -10,21 +10,26 @@ important concern.
 YAPL-1 is an attempt to make a minimal programming language. No potential
 simplification is too minimal for YAPL-1, because the goal is write an *entire*
 compiler, from source code input to assembler source code for an executable.
+It's unlikely that self-hosting will be successful without relentless focus.
 
-The assembler is contained in this Github project. The target computer is the
-WUT-4, which exists as a non-public design document and a functional emulator.
-The emulator is also found in this Github project. The compiler has absolutely
-minimal system dependencies: the ability to get a byte of input, to put a byte
-of output, and exit with an exit code. Other dependencies will be introduced
-grudgingly.
+The assembler is separate. It's contained in this Github project, in `../asm`.
+The target computer is the WUT-4, which exists as a design document and a
+functional emulator. The emulator is also found in this Github project. The
+compiler has absolutely minimal system dependencies: the ability to get a byte
+of input from an externally-defined standard input, to put a byte of output on
+an externally-defined standard output, and exit with an exit code.
+
+Every dependency must be implemented by hand in assembly language for the WUT-4
+and debugged. Other dependencies will be introduced grudgingly.
 
 YAPL-1 is envisioned as the first step in an evolution. The overreaching
-goal of the evolution is self-host the YAPL language, that is, to write the
-YAPL compiler in YAPL and run the compiler on the WUT-4. The assembler will
-not be self-hosted for now. The Go language project has shown that the design
-of an assembler intended for machine use in a compiler pipeline may be quite
-different than the design of a traditional assembler intended for programmers,
-and keeping the assembler on the host computer retains design flexibility.
+goal of the evolution is self-hosting the YAPL language, that is, to write
+the YAPL compiler in YAPL and run the compiler on the WUT-4. The assembler
+will not be self-hosted for now. The Go language project has shown that the
+design of an assembler intended for machine use in a compiler pipeline may be
+quite different than the design of a traditional assembler intended for
+programmers, and keeping the existing assembler on the host computer retains
+design flexibility.
 
 ## Constraints
 
@@ -34,9 +39,10 @@ program space. The WUT-4 is a traditional RISC with low code density, but
 the most important factor is data space. Every aspect of the implementation
 must be oriented toward efficient use of space. Popular modern techniques,
 like loading the entire source program into memory and using pointers or
-indexes as references, are not candidates for this implementation. Everything
-must stream, and anything to be stored in memory must be designed with
-attention to space reduction.
+indexes as references, are not candidates for this implementation.
+
+Everything must stream, and anything to be stored in memory must be designed
+with attention to space reduction.
 
 The WUT-4 kernel will eventually offer memory sharing with very lightweight
 switching between process-like entities in a predefined group of processes. 
@@ -65,7 +71,7 @@ absurdly simplified.
 Identifiers consist of a single lower-case letter. Identifiers are used
 to name functions and variables.
 
-Keywords and builtin functions consist of a single upper-case letter.
+Keywords and builtins consist of a single upper-case letter.
 
 Numeric constants consist of a single digit 0..9. No operators may be
 applied to numeric constants. There is no support for other number bases.
@@ -92,7 +98,8 @@ declarations: variables and functions.
 Variable declarations consist of the keyword V, a variable name, and
 an optional constant assignment.
 
-A constant assignment consists of = followed by a numeric constant.
+A constant assignment consists of = followed by a numeric constant as
+defined lexically.
 
 Function declarations consist of the keyword F, an identifier, and
 the function body. The identifier defines the function's name.
@@ -141,6 +148,12 @@ initialized to 0.
 
 All identifiers must be defined before use in source code textual order.
 
+Initially, the WUT-4 input/output system supports only a single output
+stream, equivalent to the standard output. The output of the compiler
+is a single document containing messages and, if the source file is
+correct, assembly language. Messages are packaged as assembler comments
+starting with ";" in the first column.
+
 ### Example of YAPL-1
 
 ```
@@ -149,15 +162,15 @@ All identifiers must be defined before use in source code textual order.
     V a = 0 ;     # variable "a" is fib(0)
     V b = 1 ;     # fib(1)
     V r     ;     # variable "r" result
-    V m = 8 ;     # variable "m" limit (fib(6))
+    V n = 8 ;     # variable "n" limit (fib(6))
 
     F m {              # function "m"
         r = a + b ;
-        I r m {        # if r == m
+        I r n {        # if r == m
             W = a ;    # write some values to display variables
             X = b ;
             Y = r ;
-            Z = m ;
+            Z = n ;
             Q          # quit to OS
         } E {          # else
             a = b      # shift down
