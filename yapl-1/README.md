@@ -95,18 +95,74 @@ an optional constant assignment.
 A constant assignment consists of = followed by a numeric constant.
 
 Function declarations consist of the keyword F, an identifier, and
-the function body.
+the function body. The identifier defines the function's name.
 
-The function body consists of an opening curly brace, a sequence of
-0 or more statements, and a closing curly brace.
+The function body consists of a block.
 
+A block consists of an opening curly brace, a sequence of 0 or more
+statements, and a closing curly brace. Variables may not be defined
+within a block.
 
-serves as the function name, 
-The characters { and } (curly braces) are used to create blocks of
-simple statements.
+Statements consist of expressions, function calls, and conditional
+statements.
 
-### Semantic structure
+An expression begins with an identifier and the character = It may
+be followed by either a term and a semicolon or by a term, the character
++, another term, and a semicolon.
+
+A term is a variable name or numeric constant.
+
+A function call is the identifier of the known function followed by
+a semicolon. A function becomes known when its declaration is seen,
+so functions may be recursive.
+
+A conditional statement consists of a conditional expression followed
+by a block followed by the keyword E followed by another block. The
+E and the second block are not optional.
+
+A conditional expression the keyword I followed by two terms separated 
+by whitespace with no ; or other punctuation.
+
+Every program should define a function named m. Execution begins at
+this function.
+
+The builtin variables W, X, Y, and Z may be assigned. These values are
+displayed by the emulator when the program exits.
+
+Execution of the builtin Q causes the program to quit. In the emulator,
+this results in a state dump which displays W, X, Y, and Z among
+other values.
+
+### Semantic structure of YAPL-1
 
 All variables have type unsigned 8-bit value, the equivalent of uint8
-in Golang.
+in Golang. Variables not initialized by the program are automatically
+initialized to 0.
 
+All identifiers must be defined before use in source code textual order.
+
+### Example of YAPL-1
+
+```
+    # Compute the first few Fibonacci numbers
+
+    V a = 0 ;     # variable "a" is fib(0)
+    V b = 1 ;     # fib(1)
+    V r     ;     # variable "r" result
+    V m = 8 ;     # variable "m" limit (fib(6))
+
+    F m {              # function "m"
+        r = a + b ;
+        I r m {        # if r == m
+            W = a ;    # write some values to display variables
+            X = b ;
+            Y = r ;
+            Z = m ;
+            Q          # quit to OS
+        } E {          # else
+            a = b      # shift down
+            b = r
+            m          # recursively call m
+        }
+    }
+```
