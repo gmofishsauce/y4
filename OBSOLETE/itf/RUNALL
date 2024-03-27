@@ -1,9 +1,0 @@
-#!/bin/bash
-for i in t*.y4a ; do
-	echo "Doing $i..."
-	if ./itf ${i} 2>&1 >/dev/null | grep 'itf: passed' ; then
-		: nothing
-	else
-		echo "error: test $i failed."
-	fi
-done
